@@ -1,0 +1,234 @@
+// Git Graph as a pane: the graph, the commit it has open in a sidebar, and a file's diff in place
+// of the graph until you go back. No tab bar — a pane is short of room, and one diff at a time
+// is what the sidebar's file list is for.
+//
+// The editor's graph tab hands a clicked file to the editor around it. A pane has no editor
+// around it, and switching to the workspace's editor took the graph off screen while you were
+// still reading it — so the pane carries the two pieces of the editor it needs: the Commit panel
+// and a read-only diff per file.
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { getPending, subscribePending, takePending } from "./pending";
+import { ArrowLeft, X } from "lucide-react";
+import { GitGraph, commitFileSides, WORKTREE } from "./GitGraph";
+import { WorkPanel, statusFileSides, rowKey } from "./WorkPanel";
+import { PrList, PrView } from "./PrReview";
+import { CommitPanel } from "./CommitPanel";
+import { MonacoDiff } from "../shim/ui.js";
+import { MediaDiff, mediaKind } from "../shim/ui.js";
+import { repoLabel } from "../shim/ui.js";
+import { baseName } from "./util";
+import { FileIcon } from "../shim/ui.js";
+import { ConfirmDialog, type ConfirmState } from "../shim/ui.js";
+import { useResize } from "../shim/ui.js";
+import { useEditorSettings } from "../shim/ui.js";
+import { themeById, useIconThemesVersion } from "../shim/ui.js";
+import { gitCommitFiles, gitLogGraph, gitRepos, gitFileBytes, type CommitFile, type GraphCommit, type GitStatusRow } from "../shim/bridge.js";
+
+/** `media`: an image, video, audio file or font, shown through the media viewer, not as text. */
+interface Diff {
+  id: string; title: string; path: string; base: string; mod: string;
+  media?: { file: string; old: Uint8Array; nu?: Uint8Array; gone: boolean; labels: [string, string] };
+}
+interface CommitView { hash: string; files: CommitFile[]; log: GraphCommit[]; meta: GraphCommit | null }
+
+// Per folder, kept across mounts: a pane unmounts on every tab or workspace switch, and coming
+// back to find the diffs you had open gone is losing your place. View state, so not on disk.
+const kept = new Map<string, { diff: Diff | null; commit: CommitView | null; repo: string; file: string | null }>();
+
+export default function GraphPane({ cwd }: { cwd: string }) {
+  const k = kept.get(cwd);
+  const [diff, setDiff] = useState<Diff | null>(k?.diff ?? null);
+  const [commit, setCommit] = useState<CommitView | null>(k?.commit ?? null);
+  // The pull-request list in the side panel (in place of the commit), and the one being reviewed
+  // in the main area (in place of the graph).
+  const [prsOpen, setPrsOpen] = useState(false);
+  const [prTitle, setPrTitle] = useState("");
+  const [pr, setPr] = useState<number | null>(null);
+  // One file's history: the graph filtered to it (repo-relative path), or null for the whole graph.
+  const [file, setFile] = useState<string | null>(k?.file ?? null);
+  const showFile = (rel: string) => { setFile(rel); setDiff(null); setPr(null); };
+  // The repo shown. The workspace folder is often not one: it may sit inside a repo (git's paths
+  // are relative to that repo's top, not to the folder) or hold several side by side. So the
+  // graph works on a repo's top level, and a folder with more than one gets a picker.
+  const [repos, setRepos] = useState<string[] | null>(null);
+  const [repo, setRepo] = useState(k?.repo ?? "");
+  useEffect(() => {
+    void gitRepos(cwd)
+      .then((r) => { setRepos(r); setRepo((cur) => (r.includes(cur) ? cur : r[0] ?? "")); })
+      .catch(() => setRepos([]));
+  }, [cwd]);
+  const pickRepo = (r: string) => { setRepo(r); setCommit(null); setDiff(null); setPr(null); setFile(null); };
+  const [busy, setBusy] = useState(false);
+  const [treeView, setTreeView] = useState(true);
+  // The graph asks before a reset or a branch delete, and refuses the action with no one to ask
+  // through — in the editor that is the editor's dialog, here it is this one.
+  const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+  const [sideW, sideDrag] = useResize({ initial: 300, min: 160, max: 520, direction: "horizontal", invert: true });
+  useEffect(() => { kept.set(cwd, { diff, commit, repo, file }); }, [cwd, diff, commit, repo, file]);
+  // A commit Deck asked for (the Editor's blame hash): open its repo, unfiltered, with the commit
+  // expanded in the graph and its files in the side panel.
+  const [focusHash, setFocusHash] = useState<string | undefined>(undefined);
+  const request = useSyncExternalStore(subscribePending, getPending);
+  useEffect(() => {
+    if (!request || repos === null) return;
+    const want = request.root.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
+    const match = repos.find((r) => r.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase() === want);
+    // A commit of a repo this workspace does not hold is left for a pane that does.
+    if (want && !match) return;
+    takePending();
+    if (match && match !== repo) setRepo(match);
+    setFile(null); setDiff(null); setPr(null); setPrsOpen(false);
+    setFocusHash(request.hash);
+    void showCommitIn(match ?? repo, request.hash);
+  }, [request, repos]);
+
+  const settings = useEditorSettings();
+  useIconThemesVersion();
+  const theme = themeById(settings.iconTheme);
+
+  // The log is fetched once and reused while stepping, as the editor's Commit panel does.
+  // `preset` is the graph's uncommitted row, which git has no commit to look up for.
+  const showCommit = (hash: string, log?: GraphCommit[], preset?: { files: CommitFile[]; meta: GraphCommit }) =>
+    showCommitIn(repo, hash, log, preset);
+  // The repo is passed rather than read, so a request can open a commit in the repo it is
+  // switching to before that state has landed.
+  async function showCommitIn(inRepo: string, hash: string, log?: GraphCommit[], preset?: { files: CommitFile[]; meta: GraphCommit }) {
+    if (preset) { setCommit({ hash, files: preset.files, log: [], meta: preset.meta }); return; }
+    setBusy(true);
+    const [files, theLog] = await Promise.all([
+      gitCommitFiles(inRepo, hash).catch(() => [] as CommitFile[]),
+      log ? Promise.resolve(log) : gitLogGraph(inRepo, 0).catch(() => [] as GraphCommit[]),
+    ]);
+    setCommit({ hash, files, log: theLog, meta: theLog.find((c) => c.hash === hash) ?? null });
+    setBusy(false);
+  };
+
+  // A file's diff takes the graph's place; the sidebar stays, so the next file is one click away.
+  const openDiff = async (hash: string, parent: string | undefined, f: CommitFile) => {
+    if (mediaKind(f.rel) && hash !== WORKTREE) {
+      const [nu, old] = await Promise.all([
+        gitFileBytes(repo, hash, f.rel).catch(() => new Uint8Array()),
+        parent ? gitFileBytes(repo, parent, f.old ?? f.rel).catch(() => new Uint8Array()) : Promise.resolve(new Uint8Array()),
+      ]);
+      setDiff({ id: `${hash}:${f.rel}`, path: `${hash}:${f.rel}`, base: "", mod: "", title: `${baseName(f.rel)} (${hash.slice(0, 7)})`,
+        media: { file: f.rel, old, nu, gone: false, labels: [parent ? parent.replace(/\^$/, "").slice(0, 7) : "Before", hash.slice(0, 7)] } });
+      return;
+    }
+    const { mod, base, title } = await commitFileSides(repo, hash, parent, f);
+    setDiff({ id: `${hash}:${f.rel}`, path: `${hash}:${f.rel}`, base, mod, title });
+  };
+  // An uncommitted file: staged and unstaged are separate diffs.
+  const openStatusDiff = async (r: GitStatusRow) => {
+    const key = `${WORKTREE}:${rowKey(r)}`;
+    if (mediaKind(r.rel)) {
+      // Staged: HEAD against the index. Unstaged: the index against the file on disk.
+      const [old, nu] = await Promise.all([
+        gitFileBytes(repo, r.staged ? "HEAD" : "", r.rel).catch(() => new Uint8Array()),
+        r.staged ? gitFileBytes(repo, "", r.rel).catch(() => new Uint8Array()) : Promise.resolve(undefined),
+      ]);
+      setDiff({ id: key, path: key, base: "", mod: "", title: `${baseName(r.rel)} (${r.staged ? "Staged" : "Working Tree"})`,
+        media: { file: r.path, old, nu, gone: r.letter === "D", labels: r.staged ? ["HEAD", "Staged"] : ["Staged", "Working Tree"] } });
+      return;
+    }
+    const { mod, base, title } = await statusFileSides(repo, r);
+    setDiff({ id: key, path: key, base, mod, title });
+  };
+
+  return (
+    // Esc leaves a diff or a pull request from anywhere in the pane — the side panel included,
+    // where the click that opened it left the focus. A field that used Esc itself (search) has
+    // already handled it.
+    <div className="flex min-h-0 min-w-0 flex-1" onKeyDown={(e) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (diff) { e.preventDefault(); setDiff(null); } else if (pr != null) { e.preventDefault(); setPr(null); }
+    }}>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {pr != null && !diff && (
+          <div className="flex h-8 shrink-0 items-center gap-2 border-b border-subtle px-2 text-[12px]">
+            <button onClick={() => setPr(null)} title="Back to the graph (Esc)"
+              className="flex items-center gap-1 rounded px-1.5 py-0.5 text-text-secondary hover:bg-white/5 hover:text-text-primary">
+              <ArrowLeft size={13} /> Graph
+            </button>
+            <span className="min-w-0 flex-1 truncate text-text-primary">{prTitle || `#${pr}`}</span>
+            <button onClick={() => setPr(null)} title="Close" className="vscode-toggle"><X size={14} /></button>
+          </div>
+        )}
+        {diff && (
+          // Esc goes back too, from anywhere in the diff.
+          <div className="flex h-8 shrink-0 items-center gap-2 border-b border-subtle px-2 text-[12px]">
+            <button onClick={() => setDiff(null)} title="Back to the graph (Esc)"
+              className="flex items-center gap-1 rounded px-1.5 py-0.5 text-text-secondary hover:bg-white/5 hover:text-text-primary">
+              <ArrowLeft size={13} /> Graph
+            </button>
+            <FileIcon icon={theme.file(baseName(diff.path))} size={16} />
+            <span className="min-w-0 flex-1 truncate text-text-primary" title={diff.path}>{diff.title}</span>
+            <button onClick={() => setDiff(null)} title="Close" className="vscode-toggle"><X size={14} /></button>
+          </div>
+        )}
+        <div className="relative min-h-0 flex-1">
+          {/* Hidden rather than unmounted while a diff is showing, so going back to the graph
+              keeps its scroll position. */}
+          <div className={diff || pr != null ? "hidden" : "h-full"}>
+            {repos === null ? null
+              : !repo ? <div className="flex h-full items-center justify-center text-sm text-text-muted">No git repository in this folder.</div>
+              // Keyed: the graph reads its state once on mount, so a new repo needs a new graph.
+              : <GitGraph key={`${repo}:${file ?? ""}`} root={repo} onConfirm={setConfirm}
+                  rel={file ?? undefined} onClearFile={() => setFile(null)} focusHash={focusHash}
+                  onOpenCommit={(c, files, log) => { setPrsOpen(false); void showCommit(c.hash, log, files && { files, meta: c }); }}
+                  onShowPrs={() => setPrsOpen(true)}
+                  // Several repos under this folder: the picker sits at the toolbar's left.
+                  toolbarStart={repos.length > 1 && (
+                    <select value={repo} onChange={(e) => pickRepo(e.target.value)} title="Repository"
+                      className="vscode-input max-w-40 px-1.5 text-[12px]">
+                      {repos.map((r) => <option key={r} value={r}>{repoLabel(cwd, r)}</option>)}
+                    </select>
+                  )} />}
+          </div>
+          {pr != null && !diff && (
+            <PrView key={`${repo}:${pr}`} root={repo} remote="origin" number={pr} theme={theme} onConfirm={setConfirm}
+              onOpenCommit={(oid) => { setPrsOpen(false); void showCommit(oid); }} />
+          )}
+          {diff?.media && (
+            <MediaDiff key={diff.id} path={diff.media.file} oldBytes={diff.media.old} newBytes={diff.media.nu}
+              gone={diff.media.gone} oldLabel={diff.media.labels[0]} newLabel={diff.media.labels[1]} />
+          )}
+          {diff && !diff.media && (
+            <MonacoDiff key={diff.id} path={diff.path} head={diff.base} work={diff.mod}
+              sideBySide={settings.diffSideBySide} readOnly rev={0} onChange={() => {}} />
+          )}
+        </div>
+      </div>
+      {(commit || prsOpen) && (
+        <>
+          {/* On the right, as GitKraken has it: the graph reads left to right into the details. */}
+          <div {...sideDrag} title="Drag to resize"
+            className="w-1 shrink-0 cursor-col-resize border-l border-subtle transition-colors hover:bg-white/20" />
+          <div className="flex min-h-0 shrink-0 flex-col" style={{ width: sideW }}>
+            {prsOpen ? (
+              <PrList root={repo} selected={pr} onOpen={(n, title) => { setPr(n); setPrTitle(title); setDiff(null); }} onClose={() => setPrsOpen(false)} />
+            ) : commit && commit.hash === WORKTREE ? (
+              <WorkPanel key={repo} root={repo} theme={theme} onConfirm={setConfirm}
+                selected={diff?.id.startsWith(`${WORKTREE}:`) ? diff.id.slice(WORKTREE.length + 1) : undefined}
+                treeView={treeView} onToggleTree={() => setTreeView((t) => !t)}
+                onOpenFile={(r) => void openStatusDiff(r)} onClose={() => setCommit(null)}
+                onFileHistory={(r) => showFile(r.rel)}
+                // In the workspace's editor, as a ctrl-clicked path in a terminal opens: Terminals
+                // claims the event and switches to that editor.
+                onEditFile={(r) => window.dispatchEvent(new CustomEvent("deck-term-open", { detail: { path: r.path }, cancelable: true }))} />
+            ) : commit && <CommitPanel
+              view={commit} busy={busy} treeView={treeView} onToggleTree={() => setTreeView((t) => !t)} theme={theme}
+              onOpenFile={(f) => void openDiff(commit.hash, commit.meta?.parents[0] ?? `${commit.hash}^`, f)}
+              // The working-tree file, in the workspace's editor tab — as the uncommitted rows do.
+              onEditFile={(f) => window.dispatchEvent(new CustomEvent("deck-term-open", { detail: { path: `${repo}/${f.rel}` }, cancelable: true }))}
+              onClose={() => setCommit(null)}
+              // The file whose diff is open (its id is `<hash>:<rel>`), else the one whose history shows.
+              onFileHistory={(f) => showFile(f.rel)}
+              activeRel={diff?.id.startsWith(`${commit.hash}:`) ? diff.id.slice(commit.hash.length + 1) : file ?? undefined}
+            />}
+          </div>
+        </>
+      )}
+      <ConfirmDialog state={confirm} onClose={() => setConfirm(null)} />
+    </div>
+  );
+}
