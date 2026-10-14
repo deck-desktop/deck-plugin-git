@@ -3,6 +3,7 @@
   "name": "Git",
   "description": "A commit graph for each workspace: stage and commit, branches, tags and stashes, file history, diffs, and GitHub/GitLab pull requests with review comments. Formerly Deck's built-in Git Graph.",
   "icon": "GitBranch",
-  "version": "1.0.0",
+  "color": "#f97316",
+  "version": "1.0.1",
   "minDeck": "1.1.0"
 }
