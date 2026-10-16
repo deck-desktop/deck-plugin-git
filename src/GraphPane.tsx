@@ -13,7 +13,10 @@ import { GitGraph, commitFileSides, WORKTREE } from "./GitGraph";
 import { WorkPanel, statusFileSides, rowKey } from "./WorkPanel";
 import { PrList, PrView } from "./PrReview";
 import { CommitPanel } from "./CommitPanel";
-import { MonacoDiff } from "../shim/ui.js";
+import { MonacoDiff, applyLineChanges, type HunkAction } from "../shim/ui.js";
+import { fsWrite } from "../shim/bridge.js";
+import { gitSetIndexContent } from "./git";
+import { GIT_CHANGED } from "./WorkPanel";
 import { MediaDiff, mediaKind } from "../shim/ui.js";
 import { repoLabel } from "../shim/ui.js";
 import { baseName } from "./util";
@@ -27,6 +30,9 @@ import { gitCommitFiles, gitLogGraph, gitRepos, gitFileBytes, type CommitFile, t
 /** `media`: an image, video, audio file or font, shown through the media viewer, not as text. */
 interface Diff {
   id: string; title: string; path: string; base: string; mod: string;
+  /** An uncommitted file's diff, which can stage, unstage and revert one change at a time. */
+  row?: GitStatusRow;
+  v?: number;
   media?: { file: string; old: Uint8Array; nu?: Uint8Array; gone: boolean; labels: [string, string] };
 }
 interface CommitView { hash: string; files: CommitFile[]; log: GraphCommit[]; meta: GraphCommit | null }
@@ -130,8 +136,44 @@ export default function GraphPane({ cwd }: { cwd: string }) {
         media: { file: r.path, old, nu, gone: r.letter === "D", labels: r.staged ? ["HEAD", "Staged"] : ["Staged", "Working Tree"] } });
       return;
     }
-    const { mod, base, title } = await statusFileSides(repo, r);
-    setDiff({ id: key, path: key, base, mod, title });
+    const { mod, base, title, utf8 } = await statusFileSides(repo, r);
+    // `v`: read again after a change is staged or reverted, so the diff is rebuilt with the new sides.
+    setDiff({ id: key, path: key, base, mod, title, row: utf8 ? r : undefined, v: Date.now() });
+  };
+
+  /**
+   * One change at a time, from the diff's gutter. A working-tree diff is the index against the
+   * file: stage puts one change into the index, revert takes it out of the file. A staged diff is
+   * HEAD against the index: unstage takes one change back out of the index. Each writes the whole
+   * new text, made by applying just that change (applyLineChanges), and the diff is read again.
+   */
+  const hunkAction = (r: GitStatusRow): HunkAction => {
+    const done = async () => {
+      window.dispatchEvent(new CustomEvent(GIT_CHANGED, { detail: repo }));
+      await openStatusDiff(r);
+    };
+    const fail = (what: string) => (e: unknown) => {
+      console.warn(`[git] ${what} failed`, e);
+      setConfirm({ title: `${what} failed`, confirmLabel: "OK", danger: false, acknowledge: true, onConfirm: () => {}, body: String(e).replace(/^Error:\s*/, "") });
+    };
+    // A change the other way round: the left side's lines laid over the right side's.
+    const flip = (c: Parameters<HunkAction["run"]>[0]) => ({
+      originalStartLineNumber: c.modifiedStartLineNumber, originalEndLineNumber: c.modifiedEndLineNumber,
+      modifiedStartLineNumber: c.originalStartLineNumber, modifiedEndLineNumber: c.originalEndLineNumber, charChanges: undefined,
+    });
+    if (r.staged) return {
+      label: "−", unstage: true,
+      run: (c, m) => void gitSetIndexContent(repo, r.rel, applyLineChanges(m.modified, m.original, [flip(c)])).then(done, fail("Unstaging the change")),
+    };
+    return {
+      label: "+", unstage: false,
+      run: (c, m) => void gitSetIndexContent(repo, r.rel, applyLineChanges(m.original, m.modified, [c])).then(done, fail("Staging the change")),
+      revert: (c, m) => setConfirm({
+        title: "Revert this change?", confirmLabel: "Revert", danger: true,
+        body: "These lines go back to their staged text, in the file on disk. This cannot be undone here.",
+        onConfirm: () => void fsWrite(r.path, applyLineChanges(m.modified, m.original, [flip(c)])).then(done, fail("Reverting the change")),
+      }),
+    };
   };
 
   return (
@@ -193,8 +235,9 @@ export default function GraphPane({ cwd }: { cwd: string }) {
               gone={diff.media.gone} oldLabel={diff.media.labels[0]} newLabel={diff.media.labels[1]} />
           )}
           {diff && !diff.media && (
-            <MonacoDiff key={diff.id} path={diff.path} head={diff.base} work={diff.mod}
-              sideBySide={settings.diffSideBySide} readOnly rev={0} onChange={() => {}} />
+            <MonacoDiff key={`${diff.id}:${diff.v ?? 0}`} path={diff.path} head={diff.base} work={diff.mod}
+              sideBySide={settings.diffSideBySide} readOnly rev={0} onChange={() => {}}
+              hunkAction={diff.row ? hunkAction(diff.row) : undefined} />
           )}
         </div>
       </div>

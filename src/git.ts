@@ -6,7 +6,7 @@
 // ones whose parsing or binary output belongs in Rust (gitLogGraph, gitCommitFiles, gitFileBytes),
 // gitDiscard (it deletes files), the AI commit message, and the gh/glab calls, whose allowlists
 // are their security boundary.
-import { fsList, gitRun } from "../shim/bridge.js";
+import { fsList, fsWrite, gitRun } from "../shim/bridge.js";
 
 const lines = (s: string) => s.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 /** True when the command exits 0. A non-zero exit is an answer here, not a failure. */
@@ -20,6 +20,21 @@ export const gitStage = (dir: string, paths: string[]) =>
 /** Unstage paths, or everything when none are given. */
 export const gitUnstage = (dir: string, paths: string[]) =>
   gitRun(dir, paths.length ? ["restore", "--staged", "--", ...paths] : ["reset", "-q", "HEAD", "--"]).then(() => undefined);
+
+/**
+ * Put `content` in the index as `rel`'s staged text, leaving the file on disk alone: how one change
+ * is staged or unstaged from a diff. The text goes through a file in the repository's git folder
+ * (where nothing reads it as part of the project) into `git hash-object`, with `rel`'s own
+ * attributes so line endings are cleaned as `git add` would, and the index entry keeps its mode.
+ */
+export async function gitSetIndexContent(dir: string, rel: string, content: string): Promise<void> {
+  const gitDir = (await gitRun(dir, ["rev-parse", "--absolute-git-dir"])).trim();
+  const blob = `${gitDir}/deck-index-blob`;
+  await fsWrite(blob, content);
+  const sha = (await gitRun(dir, ["hash-object", "-w", `--path=${rel}`, "--", blob])).trim();
+  const mode = (await gitRun(dir, ["ls-files", "-s", "--", rel])).trim().split(/\s+/)[0] || "100644";
+  await gitRun(dir, ["update-index", "--cacheinfo", `${mode},${sha},${rel}`]);
+}
 
 /** Smart commit (VS Code's default): commit what is staged; with nothing staged, stage all first. */
 export async function gitCommit(dir: string, message: string): Promise<string> {

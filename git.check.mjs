@@ -17,10 +17,11 @@ globalThis.__gitRun = async (dir, args) => {
     throw [e.stderr, e.stdout].map((x) => String(x ?? "").trim()).filter(Boolean).join("\n") || `git exited with ${e.status}`;
   }
 };
+globalThis.__fsWrite = async (path, text) => writeFileSync(path, text);
 globalThis.__fsList = async (dir) => readdirSync(dir, { withFileTypes: true }).map((d) => ({ name: d.name, path: join(dir, d.name), dir: d.isDirectory(), mtimeMs: 0 }));
 const shim = { name: "shim", setup(b) {
   b.onResolve({ filter: /shim\/bridge\.js$/ }, () => ({ path: "shim", namespace: "shim" }));
-  b.onLoad({ filter: /.*/, namespace: "shim" }, () => ({ contents: "export const gitRun = (...a) => globalThis.__gitRun(...a); export const fsList = (...a) => globalThis.__fsList(...a);" }));
+  b.onLoad({ filter: /.*/, namespace: "shim" }, () => ({ contents: "export const gitRun = (...a) => globalThis.__gitRun(...a); export const fsList = (...a) => globalThis.__fsList(...a); export const fsWrite = (...a) => globalThis.__fsWrite(...a);" }));
 } };
 const entry = new URL("./src/git.ts", import.meta.url).pathname.replace(/^\/(\w:)/, "$1");
 const out = await build({ entryPoints: [entry], bundle: true, write: false, format: "esm", platform: "node", plugins: [shim] });
@@ -119,6 +120,17 @@ try {
   assert.equal(await g.gitPendingOp(sub), "cherry-pick");
   await g.gitAbortOp(sub, "cherry-pick");
   assert.equal(await g.gitPendingOp(dir), "");
+
+  // One change staged from a diff: the index takes the new text, the file on disk is untouched,
+  // and the entry keeps its mode.
+  sh("checkout", "-q", "main");
+  write("idx.txt", "a\nb\nc\n");
+  sh("add", "idx.txt"); sh("commit", "-qm", "idx");
+  write("idx.txt", "a\nB\nc\nd\n");
+  await g.gitSetIndexContent(dir, "idx.txt", "a\nB\nc\n");
+  assert.equal(sh("show", ":idx.txt"), "a\nB\nc");
+  assert.equal(sh("diff", "--unified=0", "--", "idx.txt").split("\n").filter((l) => /^[+-][^+-]/.test(l)).join(","), "+d");
+  assert.match(sh("ls-files", "-s", "--", "idx.txt"), /^100644 /);
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

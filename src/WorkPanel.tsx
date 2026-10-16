@@ -42,11 +42,13 @@ export const undoStore = new Map<string, UndoEntry & { at: string }>();
  */
 export async function statusFileSides(root: string, row: GitStatusRow) {
   // As bytes, decoded by the file's own mark (see openDiff in Editor.tsx); this diff is read-only.
-  const text = (b: Promise<Uint8Array>) => b.then((x) => decodeText(x).text).catch(() => "");
+  const text = (b: Promise<Uint8Array>) => b.then((x) => decodeText(x)).catch(() => ({ text: "", utf8: true }));
   const [base, mod] = await Promise.all(row.staged
     ? [text(gitFileBytes(root, "HEAD", row.rel)), text(gitFileBytes(root, "", row.rel))]
     : [text(gitFileBytes(root, "", row.rel)), text(fsReadBytes(row.path))]);
-  return { base, mod, title: `${baseName(row.rel)} (${row.staged ? "Staged" : "Working Tree"})` };
+  // `utf8`: both sides are UTF-8, so a change can be staged or reverted from the diff. Anything
+  // else would be written back as UTF-8.
+  return { base: base.text, mod: mod.text, utf8: base.utf8 && mod.utf8, title: `${baseName(row.rel)} (${row.staged ? "Staged" : "Working Tree"})` };
 }
 
 /** A status row's identity across the two lists: the same file can be in both. */
