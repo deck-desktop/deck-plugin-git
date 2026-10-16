@@ -3,7 +3,10 @@
 // a PrHost and never a CLI, so each host's commands, JSON and words stay in this one file and the
 // UI draws both the same way (prs.ts reads both hosts' JSON into one shape).
 import { useEffect, useState } from "react";
-import { ghRun, ghPrThreads, ghPrLineComment, ghThreadReply, ghThreadResolve, glabRun, glabApi, gitRemotes, gitRemoteUrl, gitFetchPr } from "../shim/bridge.js";
+import {
+  ghRun, ghPrThreads, ghPrLineComment, ghThreadReply, ghThreadResolve, glabRun, glabApi,
+} from "../shim/bridge.js";
+import { gitRemotes, gitRemoteUrl, gitFetchPr } from "./git";
 import {
   parseRemote, primaryRemote, parsePrRows, parsePrDetail, parseThreads, parseMrRows, parseMrDetail, parseMrThreads,
   PR_LIST_FIELDS, PR_VIEW_FIELDS, type PrRow, type PrDetail, type PrThread,

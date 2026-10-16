@@ -11,7 +11,10 @@ import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Loader2, RefreshCw, X, ExternalLink, Check, MessageSquare, GitMerge, GitPullRequest, CircleDot, LogIn, List, ListTree, Columns2, Rows2 } from "lucide-react";
-import { gitMergeBase, gitRangeFiles, gitFileBytes, openExternal, type CommitFile } from "../shim/bridge.js";
+import {
+  gitRangeFiles, gitFileBytes, openExternal, type CommitFile,
+} from "../shim/bridge.js";
+import { gitMergeBase } from "./git";
 import { FileIcon } from "../shim/ui.js";
 import type { ConfirmState } from "../shim/ui.js";
 import type { IconTheme } from "../shim/ui.js";
@@ -389,7 +392,7 @@ function PrFiles({ root, host, remote, d, theme, onConfirm }: { root: string; ho
   const [replies, setReplies] = useState<Record<string, string>>({});
   const [reveal, setReveal] = useState<{ line: number; side: DiffSide; n: number } | undefined>();
   const [sending, setSending] = useState(false);
-  const loadThreads = () => host.threads(d).then(setThreads).catch(() => setThreads([]));
+  const loadThreads = () => host.threads(d).then(setThreads).catch((e) => { console.warn("[git] review threads load failed", e); setThreads([]); });
   useEffect(() => { void loadThreads(); }, [host, d.number, d.headOid]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setCompose(null); setDraft(""); }, [pick?.rel]);
   /** A thread action, then the threads re-read. False when it failed (the dialog says why). */

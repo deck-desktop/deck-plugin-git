@@ -96,8 +96,8 @@ export default function GraphPane({ cwd }: { cwd: string }) {
     if (preset) { setCommit({ hash, files: preset.files, log: [], meta: preset.meta }); return; }
     setBusy(true);
     const [files, theLog] = await Promise.all([
-      gitCommitFiles(inRepo, hash).catch(() => [] as CommitFile[]),
-      log ? Promise.resolve(log) : gitLogGraph(inRepo, 0).catch(() => [] as GraphCommit[]),
+      gitCommitFiles(inRepo, hash).catch((e) => { console.warn("[git] commit files load failed", e); return [] as CommitFile[]; }),
+      log ? Promise.resolve(log) : gitLogGraph(inRepo, 0).catch((e) => { console.warn("[git] log load failed", e); return [] as GraphCommit[]; }),
     ]);
     setCommit({ hash, files, log: theLog, meta: theLog.find((c) => c.hash === hash) ?? null });
     setBusy(false);

@@ -4,18 +4,14 @@ import {
   ArrowDownToLine, ArrowUpFromLine, GitBranchPlus, Archive, ArchiveRestore, LogIn, Pencil, Search, X, Laptop, Cloud, GitPullRequest, History,
 } from "lucide-react";
 import {
-  gitLogGraph, gitCheckoutDetach, gitBranchAt, gitRevert, gitCherryPick,
-  gitResetTo, gitTag, gitRefs, gitMergeAs, gitContinueOp, openExternal, gitBranchDelete, gitBranchDeleteRemote,
-  gitTagDelete, gitTagPush, gitTagDeleteRemote, gitPushBranch, gitRemotes, gitPendingOp, gitAbortOp,
-  gitFetch, gitStatus, gitFileBytes, fsReadBytes,
-  gitCheckout, gitCheckoutTrack, gitCheckoutNew, gitBranchRename, gitRebase,
-  gitPull, gitPullRebase, gitPush, gitStash, gitStashPop, gitHead, gitStashApply, gitStashDrop, gitStashClear,
-  type GraphCommit, type CommitFile, type GitRef,
+  gitLogGraph, gitCheckoutDetach, gitRefs, openExternal, gitStatus, gitFileBytes, fsReadBytes, gitCheckout, gitCheckoutTrack, gitCheckoutNew, type GraphCommit, type CommitFile, type GitRef,
 } from "../shim/bridge.js";
+import { gitBranchAt, gitRevert, gitCherryPick, gitResetTo, gitTag, gitMergeAs, gitContinueOp, gitBranchDelete, gitBranchDeleteRemote, gitTagDelete, gitTagPush, gitTagDeleteRemote, gitPushBranch, gitRemotes, gitPendingOp, gitAbortOp, gitFetch, gitBranchRename, gitRebase, gitPull, gitPullRebase, gitPush, gitStash, gitStashPop, gitHead, gitStashApply, gitStashDrop, gitStashClear } from "./git";
 import { ContextMenu, type MenuEntry } from "../shim/ui.js";
 import { NamePrompt, type NamePromptState } from "../shim/ui.js";
 import { useResize } from "../shim/ui.js";
 import { GIT_CHANGED, undoStore, type UndoEntry } from "./WorkPanel";
+import { useRepoWatch } from "./watch";
 import { PrDialog } from "./PrDialog";
 import { chordFor, onKey, onKeys, pushScope } from "../shim/ui.js";
 import { formatChord, parseChord } from "../shim/ui.js";
@@ -40,7 +36,10 @@ function setOnScreen(open: () => void, shown: boolean) {
   if (shown) onScreen.push(open);
   if (onScreen.length && !releaseOnScreen) {
     const offScope = pushScope("plugin:git");
-    const offKey = onKey("plugin:git:search", () => onScreen[onScreen.length - 1]?.());
+    // Except where the focus is in something with a Ctrl+F of its own (the editor's find, a
+    // terminal, a text box): taking the key there broke search in every pane beside a graph.
+    const offKey = onKey("plugin:git:search", () => onScreen[onScreen.length - 1]?.(),
+      () => !document.activeElement?.closest("input, textarea, [contenteditable=true], .monaco-editor, .xterm, .cm-editor"));
     releaseOnScreen = () => { offScope(); offKey(); };
   } else if (!onScreen.length && releaseOnScreen) {
     releaseOnScreen();
@@ -1233,9 +1232,16 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
   openSearchRef.current = openSearch;
   const [opener] = useState(() => () => openSearchRef.current());
   const shown = useRef(false);
+  // Something outside Deck changing the repo (an agent, a terminal) re-reads it, while the graph
+  // is on screen (watch.ts); coming into view catches up at once.
+  const watch = useRepoWatch(root, shown);
   const rootRef = useCallback((el: HTMLDivElement | null) => {
     if (!el) return;
-    const io = new IntersectionObserver(([e]) => { shown.current = e.isIntersecting; setOnScreen(opener, e.isIntersecting); });
+    const io = new IntersectionObserver(([e]) => {
+      shown.current = e.isIntersecting;
+      setOnScreen(opener, e.isIntersecting);
+      if (e.isIntersecting) watch.current();
+    });
     io.observe(el);
     return () => { io.disconnect(); shown.current = false; setOnScreen(opener, false); };
   }, [opener]);

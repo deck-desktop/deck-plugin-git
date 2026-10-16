@@ -4,7 +4,10 @@
 // silently be left out. Without the CLI, the host's own page opens instead with both branches chosen.
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, X } from "lucide-react";
-import { gitRefs, gitRangeSubjects, gitRemoteUrl, gitPushBranch, fsRead, openExternal } from "../shim/bridge.js";
+import {
+  gitRefs, fsRead, openExternal,
+} from "../shim/bridge.js";
+import { gitRangeSubjects, gitRemoteUrl, gitPushBranch } from "./git";
 import { parseRemote, compareUrl, draftPr } from "./prs";
 import { usePrHost, type RepoMeta } from "./prhost";
 
@@ -55,7 +58,7 @@ export function PrDialog({ root, head, base: wantBase, remote, onClose, onDone, 
         .map((r) => r.name.slice(r.name.indexOf("/") + 1));
       setBranches([...new Set([...names, ...refs.filter((r) => r.kind === "local").map((r) => r.name)])].filter((n) => n !== head).sort());
       setHeadIsLocal(refs.some((r) => r.kind === "local" && r.name === head));
-    }).catch(() => {});
+    }).catch((e) => console.warn("[git] branches load failed", e));
   }, [root, head]);
 
   // The draft follows the base until the user writes something of their own.
