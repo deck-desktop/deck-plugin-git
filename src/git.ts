@@ -33,7 +33,7 @@ export async function gitSetIndexContent(dir: string, rel: string, content: stri
   await fsWrite(blob, content);
   const sha = (await gitRun(dir, ["hash-object", "-w", `--path=${rel}`, "--", blob])).trim();
   const mode = (await gitRun(dir, ["ls-files", "-s", "--", rel])).trim().split(/\s+/)[0] || "100644";
-  await gitRun(dir, ["update-index", "--cacheinfo", `${mode},${sha},${rel}`]);
+  await gitRun(dir, ["update-index", "--add", "--cacheinfo", `${mode},${sha},${rel}`]);
 }
 
 /** Smart commit (VS Code's default): commit what is staged; with nothing staged, stage all first. */
