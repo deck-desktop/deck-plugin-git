@@ -17,9 +17,16 @@ const succeeds = (dir: string, args: string[]) => gitRun(dir, args).then(() => t
 /** Stage paths, or everything when none are given. */
 export const gitStage = (dir: string, paths: string[]) =>
   gitRun(dir, paths.length ? ["add", "--", ...paths] : ["add", "-A"]).then(() => undefined);
-/** Unstage paths, or everything when none are given. */
-export const gitUnstage = (dir: string, paths: string[]) =>
-  gitRun(dir, paths.length ? ["restore", "--staged", "--", ...paths] : ["reset", "-q", "HEAD", "--"]).then(() => undefined);
+/**
+ * Unstage paths, or everything when none are given. A repo with no commit yet has no HEAD to
+ * restore from (`restore --staged` and `reset` both fail with "could not resolve HEAD"), so there
+ * unstaging takes the paths out of the index, which leaves the files on disk untracked.
+ */
+export async function gitUnstage(dir: string, paths: string[]): Promise<void> {
+  const head = await gitRun(dir, ["rev-parse", "--verify", "-q", "HEAD"]).then(() => true, () => false);
+  if (!head) await gitRun(dir, ["rm", "--cached", "-r", "-q", "--ignore-unmatch", "--", ...(paths.length ? paths : ["."])]);
+  else await gitRun(dir, paths.length ? ["restore", "--staged", "--", ...paths] : ["reset", "-q", "HEAD", "--"]);
+}
 
 /**
  * Put `content` in the index as `rel`'s staged text, leaving the file on disk alone: how one change
