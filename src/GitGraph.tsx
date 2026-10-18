@@ -16,7 +16,7 @@ import { PrDialog } from "./PrDialog";
 import { chordFor, onKey, onKeys, pushScope } from "../shim/ui.js";
 import { formatChord, parseChord } from "../shim/ui.js";
 import { updateEditorSettings, useEditorSettings } from "../shim/ui.js";
-import { GRAPH_FONT_SIZES } from "./util";
+import { GRAPH_FONT_SIZES, iconBtn, toolBtn as iconToolBtn, secondaryBtn, dangerSecondaryBtn, primaryBtn, accentFill, toggledOn } from "./util";
 import { byHead, PR_CHANGED, primaryRemote, type PrInfo, type PrState } from "./prs";
 import { usePrHost } from "./prhost";
 import { decodeText } from "../shim/ui.js";
@@ -76,7 +76,7 @@ const AVATAR_COLORS = ["#3b7dd8", "#4a9d5f", "#b5651d", "#8b5cf6", "#c2410c", "#
  * lookup would be a per-row fetch to a third party, which is a lot of traffic and a privacy
  * question for a panel that just needs to tell rows apart at a glance.
  */
-function avatarOf(name: string, email: string) {
+export function avatarOf(name: string, email: string) {
   const key = (email || name).trim().toLowerCase();
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
@@ -121,8 +121,8 @@ type MergeStyle = "no-ff" | "ff" | "squash";
 function MergeStyleChoice({ pick }: { pick: (s: MergeStyle) => void }) {
   const [style, setStyle] = useState<MergeStyle>("no-ff");
   const opt = (v: MergeStyle, label: string, sub: string) => (
-    <label className="flex cursor-pointer items-start gap-2 rounded px-1 py-1 hover:bg-white/5">
-      <input type="radio" checked={style === v} onChange={() => { setStyle(v); pick(v); }} className="mt-1" />
+    <label className="flex cursor-pointer items-start gap-2 rounded-md px-1.5 py-1 transition-colors hover:bg-white/5">
+      <input type="radio" checked={style === v} onChange={() => { setStyle(v); pick(v); }} className="mt-1 accent-[var(--accent)]" />
       <span><span className="text-text-primary">{label}</span><span className="block text-[11px] text-text-muted">{sub}</span></span>
     </label>
   );
@@ -1071,7 +1071,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
   const toolBtn = (label: string, icon: React.ReactNode, onClick: (e: React.MouseEvent<HTMLButtonElement>) => void,
     o: { disabled?: boolean; title?: string } = {}) => (
     <button title={o.title ?? label} disabled={o.disabled} onClick={onClick}
-      className="flex shrink-0 items-center gap-1.5 rounded px-2 py-1 text-[12px] text-text-secondary hover:bg-white/5 hover:text-text-primary disabled:opacity-40">
+      className="flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[12px] text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent">
       {icon}{(!listW || listW >= 480) && <span>{label}</span>}
     </button>
   );
@@ -1275,24 +1275,31 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
   const last = Math.min(vms.length, Math.ceil((view.top + (view.h || 1000)) / RH) + 20);
   const dimmed = (c: GraphCommit) => q !== "" && !isMatch(c);
 
-  if (loading) return <div className="flex h-full items-center justify-center text-sm text-text-muted"><Loader2 size={16} className="mr-2 animate-spin" /> Loading graph…</div>;
-  if (!commits.length) return <div className="flex h-full items-center justify-center text-sm text-text-muted">No commit history.</div>;
+  if (loading) return <div className="flex h-full items-center justify-center text-[12.5px] text-text-muted"><Loader2 size={15} className="mr-2 animate-spin" /> Loading the graph…</div>;
+  if (!commits.length) return (
+    <div className="flex h-full items-center justify-center px-6">
+      <div className="flex max-w-sm items-start gap-2.5 rounded-lg border border-subtle bg-elev px-3 py-3 text-[12px] leading-relaxed text-text-muted">
+        <GitCommitHorizontal size={16} className="mt-0.5 shrink-0" />
+        <span>{rel ? `No commit has touched ${rel} yet.` : "No commits here yet. Make the first one from the Editor's Source Control or a terminal, and its history shows here."}</span>
+      </div>
+    </div>
+  );
 
   return (
     <div ref={rootRef} className="flex h-full flex-col" onPointerEnter={() => syncHeadRef.current()}>
       {/* The toolbar: GitKraken's actions in the middle, labelled; search, the branch filter and
           refresh at the right. The search box only appears when asked for — it is used now and
           then, and a permanent input took the width the actions need. */}
-      <div className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2 border-b border-subtle px-2 py-1.5">
+      <div className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2 border-b border-subtle px-1.5 py-1">
         <div className="flex min-w-0 items-center">
           {rel ? (
             // One file's history: say which, and the way back to the whole graph.
-            <span className="flex min-w-0 items-center gap-1.5 rounded px-2 py-0.5 text-[12px] text-text-primary"
+            <span className="flex h-7 min-w-0 items-center gap-1.5 rounded-lg pl-2 pr-1 text-[12px] text-text-primary"
               style={{ background: "var(--accent-soft)" }} title={rel}>
-              <History size={12} className="shrink-0" />
+              <History size={13} className="shrink-0" />
               <span className="truncate">History: {rel}</span>
               {onClearFile && (
-                <button onClick={onClearFile} title="Back to the whole graph" className="shrink-0 text-text-muted hover:text-text-primary"><X size={12} /></button>
+                <button onClick={onClearFile} title="Back to the whole graph" className={iconBtn}><X size={12} /></button>
               )}
             </span>
           ) : toolbarStart}
@@ -1320,12 +1327,13 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
         <div className="flex items-center justify-end gap-0.5">
           {onShowPrs && !rel && (
             <button onClick={onShowPrs} title={`${prHost?.kind === "gitlab" ? "Merge requests" : "Pull requests"}: review, merge, close`}
-              className="shrink-0 rounded p-1.5 text-text-muted hover:bg-white/5 hover:text-text-primary">
+              className={iconToolBtn}>
               <GitPullRequest size={14} />
             </button>
           )}
           <button onClick={() => (searchOpen ? closeSearch() : openSearch())} title={`Search (message, author, hash) — ${formatChord(chordFor("plugin:git:search"))}`}
-            className={"shrink-0 rounded p-1.5 hover:bg-white/5 " + (searchOpen ? "text-[var(--accent)]" : "text-text-muted hover:text-text-primary")}>
+            aria-pressed={searchOpen} style={searchOpen ? toggledOn : undefined}
+            className={"grid size-7 shrink-0 place-items-center rounded-lg transition-colors " + (searchOpen ? "text-text-primary" : "text-text-muted hover:bg-white/5 hover:text-text-primary")}>
             <Search size={14} />
           </button>
           {/* Branch filter. Hidden for a single file's history: that view follows one path through
@@ -1334,20 +1342,24 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
             <button
               onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setBranchMenu({ x: r.right, y: r.bottom + 4 }); }}
               title={picked.length ? `Showing ${picked.length} ref${picked.length === 1 ? "" : "s"}` : "All branches"}
-              className={"flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-[11px] hover:bg-white/5 "
-                + (picked.length ? "text-[var(--accent)]" : "text-text-muted hover:text-text-primary")}>
+              className={"flex h-7 min-w-7 shrink-0 items-center justify-center gap-1 rounded-lg px-1.5 text-[11px] transition-colors "
+                + (picked.length ? "text-text-primary" : "text-text-muted hover:bg-white/5 hover:text-text-primary")}
+              style={picked.length ? toggledOn : undefined}>
               <Filter size={13} />
               {picked.length > 0 && <span className="tabular-nums">{picked.length}</span>}
             </button>
           )}
-          <button onClick={refresh} disabled={refreshing} title="Fetch and refresh graph"
-            className="shrink-0 rounded p-1.5 text-text-muted hover:bg-white/5 hover:text-text-primary disabled:opacity-50">
+          <button onClick={refresh} disabled={refreshing} title="Fetch and refresh graph" className={iconToolBtn}>
             <RefreshCw size={14} className={refreshing ? "animate-spin" : undefined} />
           </button>
         </div>
       </div>
       {searchOpen && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-subtle px-2 py-1.5">
+        <div className="shrink-0 border-b border-subtle px-2 py-1.5">
+        {/* The query, with its count and the way out inside the box. */}
+        <div className="flex h-8 items-center gap-1.5 rounded-lg border border-subtle pl-2.5 pr-1 transition-colors focus-within:border-[var(--accent)]"
+          style={{ background: "var(--bg-elev)" }}>
+          <Search size={13} className="shrink-0 text-text-muted" />
           <input ref={searchInput} autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search message, author, or hash"
             onKeyDown={(e) => {
               // The list's scope is released while the box has focus, so the search chord would
@@ -1357,23 +1369,24 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
               if (e.key === "Escape") { e.preventDefault(); closeSearch(); }
             }}
             title="Enter: next match · Shift+Enter: previous · Esc: close"
-            className="vscode-input min-w-0 flex-1 px-2.5 placeholder:text-text-muted" />
+            className="min-w-0 flex-1 bg-transparent text-[12.5px] text-text-primary outline-none placeholder:text-text-muted" />
           {q && <span className="shrink-0 text-[11px] tabular-nums text-text-muted">{matches.length} match{matches.length === 1 ? "" : "es"}</span>}
-          <button onClick={closeSearch} title="Close search" className="shrink-0 rounded p-1 text-text-muted hover:bg-white/5 hover:text-text-primary"><X size={13} /></button>
+          <button onClick={closeSearch} title="Close search" className="grid size-6 shrink-0 place-items-center rounded-md text-text-muted transition-colors hover:bg-white/5 hover:text-text-primary"><X size={13} /></button>
+        </div>
         </div>
       )}
       {/* Mid-operation: every other git command will fail until this is resolved, and the only
           other sign is a file with conflict markers in it. */}
       {pending && (
         <div className="flex shrink-0 items-center gap-2 border-b border-subtle px-3 py-2 text-[12px]"
-          style={{ background: "color-mix(in srgb, var(--danger) 14%, transparent)" }}>
-          <AlertTriangle size={13} style={{ color: "var(--danger)" }} className="shrink-0" />
+          style={{ background: "color-mix(in srgb, rgb(var(--tone-red-400)) 14%, transparent)" }}>
+          <AlertTriangle size={13} style={{ color: "rgb(var(--tone-red-400))" }} className="shrink-0" />
           <span className="min-w-0 flex-1 text-text-secondary">
             This {pending} stopped on conflicts. Resolve the marked files and stage them, then continue — or abandon it.
           </span>
           <button onClick={() => void act(() => gitContinueOp(root, pending), `Could not continue the ${pending}.`)}
             title="Stage the resolved files first"
-            className="shrink-0 rounded px-2 py-1 text-[11px] font-medium text-white" style={{ background: "var(--accent)" }}>
+            className={primaryBtn} style={accentFill}>
             Continue
           </button>
           <button
@@ -1384,8 +1397,8 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
               danger: true,
               run: () => act(() => gitAbortOp(root, pending), `Could not abandon the ${pending}.`),
             })}
-            className="shrink-0 rounded px-2 py-1 text-[11px] font-medium text-white"
-            style={{ background: "var(--danger)" }}>
+            // Asks first; red only under the pointer, beside the one primary action.
+            className={dangerSecondaryBtn}>
             Abandon
           </button>
         </div>
@@ -1418,7 +1431,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
               <div onClick={() => select(vm.commit)} data-hash={vm.commit.hash}
                 onContextMenu={(e) => { e.preventDefault(); if (!isWork) setMenu({ x: e.clientX, y: e.clientY, commit: vm.commit }); }}
                 className={"group/row flex h-[28px] cursor-pointer items-center gap-2 px-2 transition-opacity "
-                  + (isOpen ? "" : "hover:bg-elev ") + (dimmed(vm.commit) ? "opacity-35" : "")}
+                  + (isOpen ? "" : "hover:bg-white/5 ") + (dimmed(vm.commit) ? "opacity-35" : "")}
                 // Selected: a band in the commit's lane colour, stronger behind the message. The
                 // commit you are on (HEAD) gets a fainter one and a lane-coloured edge, so the
                 // current branch stands out without competing with the selection.
@@ -1464,7 +1477,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
                   {showDate && <span className={"w-20 shrink-0 text-right text-[11px] " + (isOpen ? "text-text-primary" : "text-text-muted")}>{vm.commit.date}</span>}
                   {showSha && <span className={"w-16 shrink-0 text-right font-mono text-[11px] " + (isOpen ? "text-text-primary" : "text-text-muted")}>
                     {copied === vm.commit.hash
-                      ? <span className="inline-flex items-center gap-1" style={{ color: "var(--ok, #81b88b)" }}><Check size={10} /> copied</span>
+                      ? <span className="inline-flex items-center gap-1" style={{ color: "rgb(var(--tone-green-400))" }}><Check size={10} /> copied</span>
                       : isWork ? "" : vm.commit.hash.slice(0, 7)}
                   </span>}
                 </div>
@@ -1474,9 +1487,11 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
         })}
         <div style={{ height: (vms.length - last) * RH }} />
         {commits.length >= PAGE && commits.length % PAGE === 0 && (
-          <button onClick={loadMore} disabled={more} className="flex h-8 w-full items-center justify-center gap-1 text-xs text-[var(--accent)] hover:underline">
-            {more ? <Loader2 size={12} className="animate-spin" /> : null} Load more
-          </button>
+          <div className="flex justify-center py-2">
+            <button onClick={loadMore} disabled={more} className={secondaryBtn}>
+              {more ? <Loader2 size={12} className="animate-spin" /> : null} Load more
+            </button>
+          </div>
         )}
       </div>
       </div>
@@ -1486,8 +1501,8 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
       )}
       {pullMenu && <ContextMenu x={pullMenu.x} y={pullMenu.y} items={pullItems()} onClose={() => setPullMenu(null)} />}
       {drag && (
-        <div className="pointer-events-none fixed z-[200] rounded px-1.5 py-0.5 text-[11px] font-medium text-text-primary shadow-lg"
-          style={{ left: drag.x + 12, top: drag.y + 8, background: "var(--bg-elev)" }}>
+        <div className="pointer-events-none fixed z-[200] rounded-md border border-subtle px-2 py-1 text-[11px] font-medium text-text-primary shadow-2xl"
+          style={{ left: drag.x + 12, top: drag.y + 8, background: "var(--bg-card)" }}>
           {drag.g.name} → drop on a branch
         </div>
       )}

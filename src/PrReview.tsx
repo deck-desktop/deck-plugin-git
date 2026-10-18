@@ -20,15 +20,20 @@ import type { ConfirmState } from "../shim/ui.js";
 import type { IconTheme } from "../shim/ui.js";
 import { MonacoDiff, type DiffSide } from "../shim/ui.js";
 import { MediaDiff, mediaKind } from "../shim/ui.js";
+import { Tabs } from "../shim/ui.js";
 import { commitFileSides } from "./GitGraph";
 import { GIT_CHANGED } from "./WorkPanel";
 import { statusColor, buildChangeTree } from "../shim/ui.js";
-import { baseName } from "./util";
+import { baseName, toolBtn, field, secondaryBtn, dangerSecondaryBtn, primaryBtn, accentFill, heading, toggledOn, chipTone } from "./util";
 import { CommitRow } from "./CommitPanel";
 import { mergeBlocker, PR_CHANGED, type PrThread, type PrRow, type PrDetail, type PrState } from "./prs";
 import { usePrHost, prError, type PrHost, type PrFilter, type Verdict } from "./prhost";
 
-const STATE_COLOR: Record<PrState, string> = { passing: "#3fb950", failing: "#f85149", pending: "#d29922", none: "var(--text-muted)" };
+const STATE_COLOR: Record<PrState, string> = { passing: "rgb(var(--tone-green-400))", failing: "rgb(var(--tone-red-400))", pending: "rgb(var(--tone-amber-400))", none: "var(--text-muted)" };
+/** A small secondary button, for actions inside a card (reply, resolve, cancel). */
+const smallBtn = "flex h-7 shrink-0 items-center gap-1.5 rounded-lg border border-subtle bg-elev px-2.5 text-[11.5px] text-text-secondary transition-colors hover:border-strong hover:text-text-primary disabled:opacity-40";
+/** The same, filled in the accent: the one thing a card is for. */
+const smallPrimary = "flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[11.5px] font-medium text-white transition-opacity hover:brightness-110 disabled:opacity-50";
 const ago = (iso: string) => {
   const s = (Date.now() - Date.parse(iso)) / 1000;
   return !isFinite(s) ? "" : s < 3600 ? `${Math.max(1, Math.round(s / 60))}m` : s < 86400 ? `${Math.round(s / 3600)}h` : `${Math.round(s / 86400)}d`;
@@ -64,29 +69,38 @@ export function PrList({ root, selected, onOpen, onClose }: {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-0.5 border-b border-subtle px-2 py-1">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">{host?.kind === "gitlab" ? "Merge requests" : "Pull requests"}</span>
-        <button onClick={load} title="Refresh" className="vscode-toggle ml-auto"><RefreshCw size={13} /></button>
-        <button onClick={onClose} title="Close" className="vscode-toggle"><X size={14} /></button>
+      <div className="flex shrink-0 items-center gap-0.5 px-2.5 pb-1 pt-2">
+        <span className="min-w-0 truncate text-[12.5px] font-medium text-text-primary">{host?.kind === "gitlab" ? "Merge requests" : "Pull requests"}</span>
+        <button onClick={load} title="Refresh" className={toolBtn + " ml-auto"}><RefreshCw size={14} /></button>
+        <button onClick={onClose} title="Close" className={toolBtn}><X size={14} /></button>
       </div>
-      <div className="flex gap-1 border-b border-subtle px-2 py-1.5">
-        {([["review", "Needs my review"], ["mine", "Mine"], ["all", "All"]] as const).map(([f, label]) => (
-          <button key={f} onClick={() => setFilter(f)}
-            className={"rounded px-2 py-0.5 text-[11px] " + (filter === f ? "bg-elev text-text-primary" : "text-text-muted hover:text-text-primary")}>
-            {label}
-          </button>
-        ))}
+      {/* Grouped buttons: one box, the filter that is on lit in the accent. */}
+      <div className="px-2.5 pb-2">
+        <div className="inline-flex max-w-full items-center gap-0.5 rounded-lg border border-subtle bg-elev p-0.5">
+          {([["review", "Needs my review"], ["mine", "Mine"], ["all", "All"]] as const).map(([f, label]) => (
+            <button key={f} onClick={() => setFilter(f)} aria-pressed={filter === f}
+              className={"h-6 min-w-0 truncate rounded-md px-2 text-[11.5px] transition-colors " + (filter === f ? "text-text-primary" : "text-text-muted hover:bg-white/5 hover:text-text-primary")}
+              style={filter === f ? { background: "var(--accent-soft)" } : undefined}>
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
-      <div className="scroll-thin min-h-0 flex-1 overflow-y-auto py-1">
-        {(rows === null || !host) && <p className="flex items-center gap-2 px-3 py-3 text-xs text-text-muted"><Loader2 size={12} className="animate-spin" /> Loading…</p>}
-        {error && <p className="px-3 py-3 text-xs text-text-muted">{error}</p>}
-        {rows?.length === 0 && !error && <p className="px-3 py-3 text-xs text-text-muted">No open {host?.noun ?? "pull request"}s here.</p>}
+      <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
+        {(rows === null || !host) && <p className="flex items-center gap-2 px-2.5 py-2 text-[12px] text-text-muted"><Loader2 size={13} className="animate-spin" /> Loading…</p>}
+        {error && <p className="break-words px-2.5 py-2 text-[12px] leading-relaxed text-text-muted">{error}</p>}
+        {rows?.length === 0 && !error && (
+          <p className="px-2.5 py-2 text-[12px] leading-relaxed text-text-muted">
+            No open {host?.noun ?? "pull request"}s here{filter !== "all" ? " for this filter" : ""}. Create one from a branch's menu in the graph, or the PR button in its toolbar.
+          </p>
+        )}
         {host && rows?.map((r) => (
           <button key={r.number} onClick={() => onOpen(r.number, `${host.short} ${host.sign}${r.number}`)}
-            className={"flex w-full flex-col gap-0.5 px-3 py-1.5 text-left hover:bg-elev " + (selected === r.number ? "bg-elev" : "")}>
+            className={"flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors " + (selected === r.number ? "" : "hover:bg-white/5")}
+            style={selected === r.number ? { background: "var(--accent-soft)" } : undefined}>
             <span className="flex min-w-0 items-center gap-1.5 text-[12px]">
               <GitPullRequest size={12} className="shrink-0" style={{ color: r.isDraft ? "var(--text-muted)" : STATE_COLOR[r.state] }} />
-              <span className="truncate text-text-primary">{r.title}</span>
+              <span className="truncate text-[12.5px] text-text-primary">{r.title}</span>
             </span>
             <span className="truncate pl-[18px] text-[11px] text-text-muted">
               {host.sign}{r.number} · {r.author} · {r.head} → {r.base}{r.isDraft ? " · draft" : ""} · {ago(r.updatedAt)}
@@ -161,32 +175,38 @@ export function PrView({ root, remote, number, theme, onConfirm, onOpenCommit }:
     return ok;
   };
 
-  if (!d || !host) return <div className="flex h-full items-center justify-center text-sm text-text-muted"><Loader2 size={16} className="mr-2 animate-spin" /> Loading #{number}…</div>;
+  if (!d || !host) return <div className="flex h-full items-center justify-center text-[12.5px] text-text-muted"><Loader2 size={15} className="mr-2 animate-spin" /> Loading #{number}…</div>;
 
   const open = d.state === "OPEN";
   const blocker = mergeBlocker(d);
-  const stateBadge = d.state === "MERGED" ? ["Merged", "#a371f7"] : d.state === "CLOSED" ? ["Closed", "#f85149"] : d.isDraft ? ["Draft", "var(--text-muted)"] : ["Open", "#3fb950"];
-  const btn = "flex items-center gap-1.5 rounded px-2 py-1 text-[12px] text-text-secondary hover:bg-white/5 hover:text-text-primary disabled:opacity-40";
+  const stateBadge = d.state === "MERGED" ? ["Merged", "rgb(var(--tone-violet-400))"] : d.state === "CLOSED" ? ["Closed", "rgb(var(--tone-red-400))"]
+    : d.isDraft ? ["Draft", "var(--text-muted)"] : ["Open", "rgb(var(--tone-green-400))"];
+  const btnBase = "flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[12px] transition-colors disabled:opacity-40";
+  const btn = btnBase + " text-text-secondary hover:bg-white/5 hover:text-text-primary";
+  /** A toolbar button whose box is open below it: lit as a toggle that is on. */
+  const boxBtn = (b: Box) => ({ className: box === b ? btnBase + " text-text-primary" : btn, style: box === b ? toggledOn : undefined });
+  /** The open action's own small form, under the buttons. */
+  const card = "mt-3 space-y-2.5 rounded-lg border border-subtle p-3";
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Header: what it is, and the actions. */}
-      <div className="shrink-0 border-b border-subtle px-4 py-3">
+      <div className="shrink-0 px-4 pt-3">
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
             <div className="text-[15px] font-semibold text-text-primary">{d.title} <span className="font-normal text-text-muted">{host.sign}{d.number}</span></div>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-text-muted">
-              <span className="rounded-full px-2 py-0.5 text-[11px] font-medium text-white" style={{ background: stateBadge[1] }}>{stateBadge[0]}</span>
+              <span className="rounded-full px-1.5 py-px text-[10.5px]" style={chipTone(stateBadge[1])}>{stateBadge[0]}</span>
               <span>{d.author} wants to merge <span className="font-mono text-text-secondary">{d.head}</span> into <span className="font-mono text-text-secondary">{d.base}</span></span>
-              {d.additions != null && <span><span style={{ color: "#3fb950" }}>+{d.additions}</span> <span style={{ color: "#f85149" }}>-{d.deletions}</span></span>}
+              {d.additions != null && <span className="tabular-nums"><span style={{ color: "var(--git-added)" }}>+{d.additions}</span> <span style={{ color: "var(--git-deleted)" }}>-{d.deletions}</span></span>}
             </div>
           </div>
-          <button onClick={load} title="Refresh" className="vscode-toggle"><RefreshCw size={13} /></button>
+          <button onClick={load} title="Refresh" className={toolBtn}><RefreshCw size={14} /></button>
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-1">
-          {open && <button onClick={() => setBox(box === "review" ? null : "review")} className={btn}><Check size={13} /> Review</button>}
-          {open && <button onClick={() => setBox(box === "merge" ? null : "merge")} className={btn}><GitMerge size={13} /> Merge</button>}
-          {open && <button onClick={() => setBox(box === "close" ? null : "close")} className={btn}><X size={13} /> Close</button>}
+        <div className="mt-2 flex flex-wrap items-center gap-0.5">
+          {open && <button onClick={() => setBox(box === "review" ? null : "review")} {...boxBtn("review")}><Check size={13} /> Review</button>}
+          {open && <button onClick={() => setBox(box === "merge" ? null : "merge")} {...boxBtn("merge")}><GitMerge size={13} /> Merge</button>}
+          {open && <button onClick={() => setBox(box === "close" ? null : "close")} {...boxBtn("close")}><X size={13} /> Close</button>}
           {d.state === "CLOSED" && <button disabled={!!busy} onClick={() => void run("Reopen", () => host.reopen(number))} className={btn}><CircleDot size={13} /> Reopen</button>}
           {open && <button disabled={!!busy} onClick={() => void run("Check out", () => host.checkout(number), true)} className={btn} title={`Check out the ${host.noun}'s branch here, to run it`}><LogIn size={13} /> Check out</button>}
           {open && (d.isDraft
@@ -198,60 +218,58 @@ export function PrView({ root, remote, number, theme, onConfirm, onOpenCommit }:
 
         {/* The open action's own small form, under the buttons. */}
         {box === "review" && (
-          <div className="mt-3 space-y-2 rounded-md border border-subtle p-3">
-            <div className="flex gap-3 text-[12px] text-text-secondary">
+          <div className={card} style={{ background: "var(--bg-card)" }}>
+            <div className="flex flex-wrap gap-3 text-[12px] text-text-secondary">
               {verdicts.map(({ v, label, why }) => (
                 <label key={v} className={"flex items-center gap-1.5 " + (why ? "opacity-40" : "")} title={why}>
-                  <input type="radio" checked={verdict === v} disabled={!!why} onChange={() => setVerdict(v)} /> {label}
+                  <input type="radio" className="accent-[var(--accent)]" checked={verdict === v} disabled={!!why} onChange={() => setVerdict(v)} /> {label}
                 </label>
               ))}
             </div>
-            {refused && <p className="text-[11px] text-text-muted">{refused}, so only a comment is possible here. Another account can approve it.</p>}
+            {refused && <p className="text-[11.5px] text-text-muted">{refused}, so only a comment is possible here. Another account can approve it.</p>}
             <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4}
               placeholder={verdict === "approve" || verdict === "revoke" ? "Optional message" : verdict === "comment" ? "Comment (required)" : "What should change? (required)"}
-              className="vscode-input w-full resize-y px-2 py-1 text-[12px]" />
+              className={field + " block resize-y px-2.5 py-1.5 leading-5"} />
             <button disabled={!!busy || ((verdict === "comment" || verdict === "request-changes") && !text.trim())}
               onClick={() => void run("Review", () => host.review(number, verdict, text.trim()))}
-              className="rounded-md px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-40" style={{ background: "var(--accent)" }}>
+              className={primaryBtn} style={accentFill}>
               Submit review
             </button>
           </div>
         )}
         {box === "merge" && (
-          <div className="mt-3 space-y-2 rounded-md border border-subtle p-3 text-[12px] text-text-secondary">
-            {blocker && <p style={{ color: "var(--danger)" }}>{blocker}</p>}
-            {!blocker && d.checks.some((c) => c.state === "failing") && <p style={{ color: "#d29922" }}>Some checks are failing.</p>}
-            <div className="flex gap-3">
+          <div className={card + " text-[12px] text-text-secondary"} style={{ background: "var(--bg-card)" }}>
+            {blocker && <p style={{ color: "rgb(var(--tone-red-400))" }}>{blocker}</p>}
+            {!blocker && d.checks.some((c) => c.state === "failing") && <p style={{ color: "rgb(var(--tone-amber-400))" }}>Some checks are failing.</p>}
+            <div className="flex flex-wrap gap-3">
               {([["merge", "Merge commit"], ["squash", "Squash"], ["rebase", "Rebase"]] as const).map(([v, label]) => (
-                <label key={v} className="flex items-center gap-1.5"><input type="radio" checked={method === v} onChange={() => setMethod(v)} /> {label}</label>
+                <label key={v} className="flex items-center gap-1.5"><input type="radio" className="accent-[var(--accent)]" checked={method === v} onChange={() => setMethod(v)} /> {label}</label>
               ))}
             </div>
-            <label className="flex items-center gap-1.5"><input type="checkbox" checked={deleteBranch} onChange={(e) => setDeleteBranch(e.target.checked)} /> Delete {d.head} after merging</label>
+            <label className="flex items-center gap-1.5"><input type="checkbox" className="accent-[var(--accent)]" checked={deleteBranch} onChange={(e) => setDeleteBranch(e.target.checked)} /> Delete {d.head} after merging</label>
             <button disabled={!!busy || !!blocker}
               onClick={() => void run("Merge", () => host.merge(number, method, deleteBranch), true)}
-              className="rounded-md px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-40" style={{ background: "#238636" }}>
-              Merge {host.noun}
+              className={primaryBtn} style={accentFill}>
+              <GitMerge size={13} /> Merge {host.noun}
             </button>
           </div>
         )}
         {box === "close" && (
-          <div className="mt-3 space-y-2 rounded-md border border-subtle p-3">
+          <div className={card} style={{ background: "var(--bg-card)" }}>
             <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder="Why it is being closed (optional, posted as a comment)"
-              className="vscode-input w-full resize-y px-2 py-1 text-[12px]" />
+              className={field + " block resize-y px-2.5 py-1.5 leading-5"} />
+            {/* It can be reopened, so it asks nothing; red only under the pointer. */}
             <button disabled={!!busy} onClick={() => void run("Close", () => host.close(number, text.trim()))}
-              className="rounded-md px-3 py-1.5 text-[12px] font-semibold text-white" style={{ background: "var(--danger)" }}>
+              className={dangerSecondaryBtn}>
               Close {host.noun}
             </button>
           </div>
         )}
 
-        <div className="mt-3 flex gap-1">
-          {([["overview", "Overview"], ["files", `Files (${d.changedFiles})`], ["commits", `Commits (${d.commits.length})`]] as const).map(([t, label]) => (
-            <button key={t} onClick={() => setTab(t)}
-              className={"rounded px-2.5 py-1 text-[12px] " + (tab === t ? "bg-elev text-text-primary" : "text-text-muted hover:text-text-primary")}>
-              {label}
-            </button>
-          ))}
+        {/* Out to the panel's edges, so the tabs' line runs across it. */}
+        <div className="-mx-4 mt-3">
+          <Tabs value={tab} onChange={setTab} layoutId="git-pr-tab"
+            options={[{ value: "overview", label: "Overview" }, { value: "files", label: `Files (${d.changedFiles})` }, { value: "commits", label: `Commits (${d.commits.length})` }]} />
         </div>
       </div>
 
@@ -259,15 +277,15 @@ export function PrView({ root, remote, number, theme, onConfirm, onOpenCommit }:
         {tab === "overview" && (
           <div className="scroll-thin h-full overflow-y-auto px-4 py-3">
             <div className="prose-deck text-[13px] leading-relaxed text-text-secondary">
-              {d.body.trim() ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{d.body}</ReactMarkdown> : <p className="italic text-text-muted">No description.</p>}
+              {d.body.trim() ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{d.body}</ReactMarkdown> : <p className="text-text-muted">No description.</p>}
             </div>
 
             {d.checks.length > 0 && (
-              <section className="mt-4">
-                <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Checks</h4>
+              <section className="mt-5">
+                <h4 className={"mb-1 " + heading}>Checks</h4>
                 {d.checks.map((c, i) => (
-                  <div key={i} className="flex items-center gap-2 py-0.5 text-[12px]">
-                    <span className="size-2 shrink-0 rounded-full" style={{ background: STATE_COLOR[c.state] }} />
+                  <div key={i} className="flex h-6 items-center gap-2 text-[12px]">
+                    <span className="size-[7px] shrink-0 rounded-full" style={{ background: STATE_COLOR[c.state] }} />
                     <span className="min-w-0 flex-1 truncate text-text-secondary">{c.name}</span>
                     {c.url && <button onClick={() => void openExternal(c.url)} className="text-[11px] text-[var(--accent)] hover:underline">details</button>}
                   </div>
@@ -275,23 +293,24 @@ export function PrView({ root, remote, number, theme, onConfirm, onOpenCommit }:
               </section>
             )}
             {(d.requested.length > 0 || d.review) && (
-              <section className="mt-4 text-[12px] text-text-secondary">
-                <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Review</h4>
+              <section className="mt-5 text-[12px] text-text-secondary">
+                <h4 className={"mb-1 " + heading}>Review</h4>
                 {d.review && <p>{d.review.replace(/_/g, " ").toLowerCase()}</p>}
                 {d.requested.length > 0 && <p>Waiting on {d.requested.join(", ")}</p>}
               </section>
             )}
 
-            <section className="mt-4">
-              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Conversation</h4>
-              {d.timeline.length === 0 && <p className="text-[12px] text-text-muted">Nothing yet.</p>}
+            <section className="mt-5">
+              <h4 className={"mb-2 " + heading}>Conversation</h4>
+              {d.timeline.length === 0 && <p className="mb-2 text-[12px] text-text-muted">No comments yet. Write the first one below.</p>}
               {d.timeline.map((e, i) => (
-                <div key={i} className="mb-2 rounded-md border border-subtle px-3 py-2">
+                <div key={i} className="mb-2 rounded-lg border border-subtle px-3 py-2" style={{ background: "var(--bg-card)" }}>
                   <div className="flex items-center gap-2 text-[11px] text-text-muted">
                     {e.kind === "review" ? <Check size={11} /> : <MessageSquare size={11} />}
                     <span className="text-text-secondary">{e.author}</span>
                     {e.verdict && e.verdict !== "COMMENTED" && (
-                      <span style={{ color: e.verdict === "APPROVED" ? "#3fb950" : e.verdict === "CHANGES_REQUESTED" ? "#f85149" : undefined }}>
+                      <span className="rounded-full px-1.5 py-px text-[10.5px]"
+                        style={chipTone(e.verdict === "APPROVED" ? "rgb(var(--tone-green-400))" : e.verdict === "CHANGES_REQUESTED" ? "rgb(var(--tone-red-400))" : "var(--text-secondary)")}>
                         {e.verdict.replace(/_/g, " ").toLowerCase()}
                       </span>
                     )}
@@ -302,20 +321,20 @@ export function PrView({ root, remote, number, theme, onConfirm, onOpenCommit }:
               ))}
               <textarea value={comment} onChange={(ev) => setComment(ev.target.value)} rows={3} placeholder="Leave a comment"
                 onKeyDown={(ev) => { if (ev.key === "Enter" && ev.ctrlKey && comment.trim()) { void run("Comment", () => host.comment(number, comment.trim())).then((ok) => { if (ok) setComment(""); }); } }}
-                className="vscode-input mt-1 w-full resize-y px-2 py-1 text-[12px]" />
+                className={field + " mt-1 block resize-y px-2.5 py-1.5 leading-5"} />
               <button disabled={!!busy || !comment.trim()} title="Ctrl+Enter"
                 onClick={() => void run("Comment", () => host.comment(number, comment.trim())).then((ok) => { if (ok) setComment(""); })}
-                className="mt-1 rounded-md px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-40" style={{ background: "var(--accent)" }}>
-                Comment
+                className={secondaryBtn + " mt-1.5"}>
+                <MessageSquare size={13} /> Comment
               </button>
             </section>
           </div>
         )}
         {tab === "files" && <PrFiles root={root} host={host} remote={remote} d={d} theme={theme} onConfirm={onConfirm} />}
         {tab === "commits" && (
-          <div className="scroll-thin h-full overflow-y-auto py-1">
+          <div className="scroll-thin h-full overflow-y-auto px-2.5 py-1.5">
             {d.commits.map((c) => (
-              <button key={c.oid} onClick={() => onOpenCommit?.(c.oid)} className="flex w-full items-center gap-3 px-4 py-1.5 text-left text-[12px] hover:bg-elev">
+              <button key={c.oid} onClick={() => onOpenCommit?.(c.oid)} className="flex h-6 w-full items-center gap-3 rounded-md px-1.5 text-left text-[12px] transition-colors hover:bg-white/5">
                 <span className="font-mono text-text-muted">{c.oid.slice(0, 7)}</span>
                 <span className="min-w-0 flex-1 truncate text-text-primary">{c.headline}</span>
                 <span className="shrink-0 text-text-muted">{c.author} · {ago(c.at)}</span>
@@ -407,7 +426,7 @@ function PrFiles({ root, host, remote, d, theme, onConfirm }: { root: string; ho
   const commentable = !!pick && !mediaKind(pick.rel);
 
   const threadCard = (t: PrThread) => (
-    <div key={t.id} className={"mb-2 rounded-md border border-subtle " + (t.resolved ? "opacity-60" : "")}>
+    <div key={t.id} className={"mb-2 overflow-hidden rounded-lg border border-subtle " + (t.resolved ? "opacity-60" : "")} style={{ background: "var(--bg-card)" }}>
       <button onClick={() => { if (t.line) setReveal({ line: t.line, side: t.side, n: Date.now() }); }}
         title={t.line ? "Show this line" : "The code under it has changed since"}
         className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] text-text-muted hover:text-text-primary">
@@ -424,13 +443,13 @@ function PrFiles({ root, host, remote, d, theme, onConfirm }: { root: string; ho
       ))}
       <div className="border-t border-subtle p-2">
         <textarea value={replies[t.id] ?? ""} onChange={(e) => setReplies({ ...replies, [t.id]: e.target.value })} rows={2} placeholder="Reply"
-          className="vscode-input w-full resize-y px-2 py-1 text-[12px]" />
-        <div className="mt-1 flex gap-1.5">
+          className={field + " block resize-y px-2.5 py-1.5 leading-5"} />
+        <div className="mt-1.5 flex gap-1.5">
           <button disabled={sending || !(replies[t.id] ?? "").trim()}
             onClick={() => void act("Reply failed", () => host.reply(d, t.id, replies[t.id].trim())).then((ok) => { if (ok) setReplies({ ...replies, [t.id]: "" }); })}
-            className="rounded px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-40" style={{ background: "var(--accent)" }}>Reply</button>
+            className={smallBtn}>Reply</button>
           <button disabled={sending} onClick={() => void act(t.resolved ? "Unresolve failed" : "Resolve failed", () => host.resolve(d, t.id, !t.resolved))}
-            className="rounded border border-subtle px-2 py-1 text-[11px] text-text-secondary hover:text-text-primary disabled:opacity-40">
+            className={smallBtn}>
             {t.resolved ? "Unresolve" : "Resolve"}
           </button>
         </div>
@@ -438,53 +457,55 @@ function PrFiles({ root, host, remote, d, theme, onConfirm }: { root: string; ho
     </div>
   );
 
-  if (!files) return <div className="flex h-full items-center justify-center text-sm text-text-muted"><Loader2 size={16} className="mr-2 animate-spin" /> Fetching the pull request…</div>;
-  if (error && !files.length) return <div className="p-4 text-[12px] text-text-muted">{error}</div>;
+  if (!files) return <div className="flex h-full items-center justify-center text-[12.5px] text-text-muted"><Loader2 size={15} className="mr-2 animate-spin" /> Fetching the pull request…</div>;
+  if (error && !files.length) return <div className="p-4 text-[12px] leading-relaxed text-text-muted">{error}</div>;
   return (
     <div className="flex h-full min-h-0">
-      <div className="flex w-64 shrink-0 flex-col border-r border-subtle">
-        <div className="flex h-7 shrink-0 items-center gap-1 border-b border-subtle px-2 text-[11px] text-text-muted">
+      <div className="flex w-64 shrink-0 flex-col border-r border-subtle bg-panel">
+        <div className="flex h-9 shrink-0 items-center gap-1 pl-3 pr-1.5 text-[11.5px] text-text-muted">
           <span>{files.length} file{files.length === 1 ? "" : "s"}</span>
-          <button onClick={() => { setTree(!tree); saveFlag(TREE_KEY, !tree); }} title={tree ? "View as List" : "View as Tree"} className="vscode-toggle ml-auto">
-            {tree ? <List size={13} /> : <ListTree size={13} />}
+          <button onClick={() => { setTree(!tree); saveFlag(TREE_KEY, !tree); }} title={tree ? "View as List" : "View as Tree"} className={toolBtn + " ml-auto"}>
+            {tree ? <List size={14} /> : <ListTree size={14} />}
           </button>
         </div>
-        <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-1 py-1 text-[12px]">
+        <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
           {tree
             ? buildChangeTree(files).map((n, i) => <CommitRow key={i} node={n} depth={0} theme={theme} onOpen={setPick} activeRel={pick?.rel} />)
             : files.map((f) => (
               <button key={f.rel} onClick={() => setPick(f)} title={f.rel}
-                className={"flex h-[22px] w-full items-center gap-1.5 rounded px-1 text-left hover:bg-elev " + (pick?.rel === f.rel ? "bg-elev" : "")}>
-                <FileIcon icon={theme.file(baseName(f.rel))} size={16} />
+                className={"flex h-6 w-full items-center gap-1.5 rounded-md px-1.5 text-left text-[12.5px] transition-colors " + (pick?.rel === f.rel ? "" : "hover:bg-white/5")}
+                style={pick?.rel === f.rel ? { background: "var(--accent-soft)" } : undefined}>
+                <FileIcon icon={theme.file(baseName(f.rel))} size={15} />
                 <span className="min-w-0 flex-1 truncate" style={{ color: statusColor(f.letter) }}>{baseName(f.rel)}</span>
-                <span className="shrink-0 text-[10px]"><span style={{ color: "#3fb950" }}>+{f.adds}</span> <span style={{ color: "#f85149" }}>-{f.dels}</span></span>
+                <span className="shrink-0 text-[10.5px] tabular-nums"><span style={{ color: "var(--git-added)" }}>+{f.adds}</span> <span style={{ color: "var(--git-deleted)" }}>-{f.dels}</span></span>
               </button>
             ))}
         </div>
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
         {pick && (
-          <div className="flex h-7 shrink-0 items-center gap-2 border-b border-subtle px-3 text-[11px] text-text-muted">
+          <div className="flex h-9 shrink-0 items-center gap-1 border-b border-subtle pl-3 pr-1.5 text-[11.5px] text-text-muted">
             <span className="min-w-0 flex-1 truncate font-mono" title={pick.rel}>{pick.rel}</span>
-            <span><span style={{ color: "#3fb950" }}>+{pick.adds}</span> <span style={{ color: "#f85149" }}>-{pick.dels}</span></span>
+            <span className="mr-1 tabular-nums"><span style={{ color: "var(--git-added)" }}>+{pick.adds}</span> <span style={{ color: "var(--git-deleted)" }}>-{pick.dels}</span></span>
             {commentable && (
-              <button onClick={() => setShowComments(!showComments)} title="Line comments on this file"
-                className={"flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-white/5 hover:text-text-primary " + (showComments ? "text-text-primary" : "")}>
-                <MessageSquare size={12} /> Comments{fileThreads.length ? ` (${fileThreads.length})` : ""}
+              <button onClick={() => setShowComments(!showComments)} title="Line comments on this file" aria-pressed={showComments}
+                className={"flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 transition-colors " + (showComments ? "text-text-primary" : "hover:bg-white/5 hover:text-text-primary")}
+                style={showComments ? toggledOn : undefined}>
+                <MessageSquare size={13} /> Comments{fileThreads.length ? ` (${fileThreads.length})` : ""}
               </button>
             )}
             {!mediaKind(pick.rel) && (
               <button onClick={() => { setSideBySide(!sideBySide); saveFlag(SPLIT_KEY, !sideBySide); }}
                 title={sideBySide ? "Show inline" : "Show side by side"}
-                className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-white/5 hover:text-text-primary">
-                {sideBySide ? <><Rows2 size={12} /> Inline</> : <><Columns2 size={12} /> Side by side</>}
+                className="flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 transition-colors hover:bg-white/5 hover:text-text-primary">
+                {sideBySide ? <><Rows2 size={13} /> Inline</> : <><Columns2 size={13} /> Side by side</>}
               </button>
             )}
           </div>
         )}
         <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1">
-        {!pick ? <div className="p-4 text-[12px] text-text-muted">No changed files.</div>
+        {!pick ? <div className="p-4 text-[12px] text-text-muted">This {host.noun} changes no files.</div>
           : !sides ? <div className="flex h-full items-center justify-center"><Loader2 size={16} className="animate-spin text-text-muted" /></div>
           : sides.media
             ? <MediaDiff key={pick.rel} path={pick.rel} oldBytes={sides.media.old} newBytes={sides.media.nu} gone={false} oldLabel={d.base} newLabel={d.head} />
@@ -496,28 +517,28 @@ function PrFiles({ root, host, remote, d, theme, onConfirm }: { root: string; ho
                 }} />}
         </div>
         {commentable && showComments && (
-          <div className="scroll-thin w-[300px] shrink-0 overflow-y-auto border-l border-subtle p-2">
+          <div className="scroll-thin w-[300px] shrink-0 overflow-y-auto border-l border-subtle bg-panel p-2">
             {compose ? (
-              <div className="mb-2 rounded-md border p-2" style={{ borderColor: "var(--accent)" }}
+              <div className="mb-2 rounded-lg border p-2" style={{ borderColor: "var(--accent)", background: "var(--bg-card)" }}
                 onKeyDown={(e) => { if (e.key === "Escape") setCompose(null); }}>
-                <div className="mb-1 text-[11px] text-text-muted">
+                <div className="mb-1.5 text-[11px] text-text-muted">
                   New comment on line {compose.line} · {compose.side === "LEFT" ? "old" : "new"} version
                 </div>
                 <textarea autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} rows={4} placeholder="Comment"
-                  className="vscode-input w-full resize-y px-2 py-1 text-[12px]" />
-                <div className="mt-1 flex gap-1.5">
+                  className={field + " block resize-y px-2.5 py-1.5 leading-5"} />
+                <div className="mt-1.5 flex gap-1.5">
                   <button disabled={sending || !draft.trim()}
                     onClick={() => void act("Comment failed", () => host.lineComment(d, pick!.rel, compose.line, compose.side, compose.other, draft.trim()))
                       .then((ok) => { if (ok) { setCompose(null); setDraft(""); } })}
-                    className="rounded px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-40" style={{ background: "var(--accent)" }}>
+                    className={smallPrimary} style={accentFill}>
                     {sending ? "Posting…" : "Comment"}
                   </button>
-                  <button onClick={() => setCompose(null)} className="rounded border border-subtle px-2 py-1 text-[11px] text-text-secondary hover:text-text-primary">Cancel</button>
+                  <button onClick={() => setCompose(null)} className={smallBtn}>Cancel</button>
                 </div>
               </div>
             ) : (
               // The host takes comments only on lines the change touched or shows around them.
-              <p className="mb-2 text-[11px] text-text-muted">Click a line number in the diff to comment on that line.</p>
+              <p className="mb-2 px-0.5 text-[11.5px] leading-relaxed text-text-muted">Click a line number in the diff to comment on that line.</p>
             )}
             {fileThreads.map(threadCard)}
           </div>
