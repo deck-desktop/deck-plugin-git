@@ -3,6 +3,7 @@
 // is pushed first — neither takes a head that is not on the remote, and an unpushed commit would
 // silently be left out. Without the CLI, the host's own page opens instead with both branches chosen.
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "../shim/react-dom.js";
 import { Loader2, X } from "lucide-react";
 import {
   gitRefs, fsRead, openExternal,
@@ -10,6 +11,7 @@ import {
 import { gitRangeSubjects, gitRemoteUrl, gitPushBranch } from "./git";
 import { parseRemote, compareUrl, draftPr } from "./prs";
 import { usePrHost, type RepoMeta } from "./prhost";
+import { field, toolBtn, primaryBtn, accentFill, heading, toggledOn } from "./util";
 
 /** Where a repo keeps its PR template, in the order GitHub looks; then GitLab's default one. */
 const TEMPLATES = [".github/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE.md", "pull_request_template.md", "docs/pull_request_template.md",
@@ -107,78 +109,88 @@ export function PrDialog({ root, head, base: wantBase, remote, onClose, onDone, 
     }
   };
 
-  const chip = (on: boolean) => "rounded-full border px-2 py-0.5 text-[11px] " + (on ? "border-[var(--accent)] text-text-primary" : "border-subtle text-text-muted hover:text-text-primary");
+  // A reviewer or label picked: the accent's soft fill and ring, as a toggle that is on.
+  const chip = (on: boolean) => "rounded-full border px-2 py-0.5 text-[11px] transition-colors "
+    + (on ? "border-transparent text-text-primary" : "border-subtle text-text-muted hover:border-strong hover:text-text-primary");
 
-  return (
-    <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/50" onClick={onClose}
+  // Portalled to <body>, as Deck's own dialogs are: `fixed` inside the pane is otherwise placed by
+  // whatever stacking context the pane sits in.
+  return createPortal(
+    <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/50 backdrop-blur-[2px]" onClick={onClose}
       onKeyDown={(e) => { if (e.key === "Escape") onClose(); if (e.key === "Enter" && e.ctrlKey) void submit(); }}>
-      <div className="glass flex max-h-[90vh] w-[720px] max-w-[calc(100vw-32px)] flex-col rounded-xl p-5" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-2">
-          <h3 className="text-[15px] font-semibold text-text-primary">Create {host?.noun ?? "pull request"}</h3>
-          <button onClick={onClose} className="vscode-toggle ml-auto" title="Close"><X size={14} /></button>
-        </div>
-        <div className="mt-1 text-[12px] text-text-muted">
-          <span className="font-mono text-text-secondary">{head}</span> into{" "}
-          <select value={base} onChange={(e) => { setBase(e.target.value); }} className="vscode-input px-1.5 py-0.5 text-[12px]">
-            {!branches.includes(base) && base && <option value={base}>{base}</option>}
-            {branches.map((b) => <option key={b} value={b}>{b}</option>)}
-          </select>
-          {gh === false && <span className="ml-2">· {host?.kind === "gitlab" ? "glab" : "gh"} not available: the host's page will open to finish it</span>}
+      <div className="flex max-h-[90vh] w-[720px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-[12px] border border-subtle shadow-2xl"
+        style={{ background: "var(--bg-card)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex min-h-0 flex-1 flex-col px-5 pb-4 pt-5">
+          <div className="flex items-center gap-2">
+            <h3 className="text-[15px] font-semibold text-text-primary">Create {host?.noun ?? "pull request"}</h3>
+            <button onClick={onClose} className={toolBtn + " -mr-1.5 -mt-1 ml-auto"} title="Close"><X size={14} /></button>
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-text-muted">
+            <span className="font-mono text-text-secondary">{head}</span> into
+            <select value={base} onChange={(e) => { setBase(e.target.value); }}
+              className="h-7 rounded-lg border border-subtle bg-elev px-2 font-mono text-[12px] text-text-primary outline-none transition-colors hover:border-strong focus:border-[var(--accent)]">
+              {!branches.includes(base) && base && <option value={base}>{base}</option>}
+              {branches.map((b) => <option key={b} value={b}>{b}</option>)}
+            </select>
+            {gh === false && <span>· {host?.kind === "gitlab" ? "glab" : "gh"} not available: the host's page will open to finish it</span>}
+          </div>
+
+          <div className="scroll-thin mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+            <input value={title} onChange={(e) => { setTitle(e.target.value); setTouched(true); }} placeholder="Title" autoFocus
+              className={field + " h-8 px-2.5"} />
+            <textarea value={body} onChange={(e) => { setBody(e.target.value); setTouched(true); }} placeholder="Description"
+              // Tall by default: a PR description is often a template with several sections.
+              className={field + " block h-[45vh] min-h-32 resize-y px-2.5 py-2 font-mono leading-5"} />
+
+            {gh && (meta?.people.length ?? 0) > 0 && (
+              <div>
+                <div className="mb-1.5 flex items-center gap-2">
+                  <span className={heading}>Reviewers</span>
+                  {reviewers.length > 0 && <span className="min-w-0 truncate text-[11.5px] text-text-muted">{reviewers.join(", ")}</span>}
+                  <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter"
+                    className="ml-auto h-7 w-36 rounded-lg border border-subtle bg-elev px-2.5 text-[12px] text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-[var(--accent)]" />
+                </div>
+                <div className="flex max-h-24 flex-wrap gap-1 overflow-y-auto">
+                  {people.map((u) => (
+                    <button key={u.login} onClick={() => toggle(reviewers, setReviewers, u.login)} className={chip(reviewers.includes(u.login))}
+                      style={reviewers.includes(u.login) ? toggledOn : undefined} title={u.name || u.login}>
+                      {u.login}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {gh && (meta?.labels.length ?? 0) > 0 && (
+              <div>
+                <div className={"mb-1.5 " + heading}>Labels</div>
+                <div className="flex max-h-24 flex-wrap gap-1 overflow-y-auto">
+                  {meta!.labels.map((l) => (
+                    <button key={l.name} onClick={() => toggle(labels, setLabels, l.name)} className={chip(labels.includes(l.name))}
+                      style={{ ...(labels.includes(l.name) ? toggledOn : {}), ...(l.color ? { borderLeft: `3px solid #${l.color}` } : {}) }}>
+                      {l.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="scroll-thin mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
-          <input value={title} onChange={(e) => { setTitle(e.target.value); setTouched(true); }} placeholder="Title" autoFocus
-            className="vscode-input w-full px-2.5 py-1.5 text-[13px]" />
-          <textarea value={body} onChange={(e) => { setBody(e.target.value); setTouched(true); }} placeholder="Description"
-            // Tall by default: a PR description is often a template with several sections.
-            className="vscode-input h-[45vh] min-h-32 w-full resize-y px-2.5 py-1.5 font-mono text-[12px]" />
-
-          {gh && (meta?.people.length ?? 0) > 0 && (
-            <div>
-              <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
-                Reviewers {reviewers.length > 0 && <span className="normal-case text-text-secondary">· {reviewers.join(", ")}</span>}
-                <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter"
-                  className="vscode-input ml-auto w-32 px-2 py-0.5 text-[11px] normal-case" />
-              </div>
-              <div className="flex max-h-24 flex-wrap gap-1 overflow-y-auto">
-                {people.map((u) => (
-                  <button key={u.login} onClick={() => toggle(reviewers, setReviewers, u.login)} className={chip(reviewers.includes(u.login))} title={u.name || u.login}>
-                    {u.login}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          {gh && (meta?.labels.length ?? 0) > 0 && (
-            <div>
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Labels</div>
-              <div className="flex max-h-24 flex-wrap gap-1 overflow-y-auto">
-                {meta!.labels.map((l) => (
-                  <button key={l.name} onClick={() => toggle(labels, setLabels, l.name)} className={chip(labels.includes(l.name))}
-                    style={l.color ? { borderLeft: `3px solid #${l.color}` } : undefined}>
-                    {l.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="mt-4 flex items-center gap-4 text-[12px] text-text-secondary">
+        <div className="flex items-center gap-4 border-t border-subtle px-4 py-3 text-[12px] text-text-secondary">
           {gh !== false && (
-            <label className="flex items-center gap-1.5"><input type="checkbox" checked={draft} onChange={(e) => setDraft(e.target.checked)} /> Draft</label>
+            <label className="flex items-center gap-1.5"><input type="checkbox" className="accent-[var(--accent)]" checked={draft} onChange={(e) => setDraft(e.target.checked)} /> Draft</label>
           )}
           {gh !== false && (
-            <label className="flex items-center gap-1.5"><input type="checkbox" checked={openAfter} onChange={(e) => setOpenAfter(e.target.checked)} /> Open in browser after</label>
+            <label className="flex items-center gap-1.5"><input type="checkbox" className="accent-[var(--accent)]" checked={openAfter} onChange={(e) => setOpenAfter(e.target.checked)} /> Open in browser after</label>
           )}
           <button onClick={() => void submit()} disabled={busy || !title.trim() || !base || gh === null}
-            className="ml-auto flex items-center gap-1.5 rounded-md px-3.5 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
-            style={{ background: "var(--accent)" }} title="Ctrl+Enter">
+            className={primaryBtn + " ml-auto"} style={accentFill} title="Ctrl+Enter">
             {busy && <Loader2 size={13} className="animate-spin" />}
             {gh === false ? "Push and open in browser" : "Push and create"}
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

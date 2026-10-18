@@ -8,7 +8,7 @@
 // and a read-only diff per file.
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { getPending, subscribePending, takePending } from "./pending";
-import { ArrowLeft, X } from "lucide-react";
+import { ArrowLeft, FolderGit2, X } from "lucide-react";
 import { GitGraph, commitFileSides, WORKTREE } from "./GitGraph";
 import { WorkPanel, statusFileSides, rowKey } from "./WorkPanel";
 import { PrList, PrView } from "./PrReview";
@@ -19,7 +19,7 @@ import { gitSetIndexContent } from "./git";
 import { GIT_CHANGED } from "./WorkPanel";
 import { MediaDiff, mediaKind } from "../shim/ui.js";
 import { repoLabel } from "../shim/ui.js";
-import { baseName } from "./util";
+import { baseName, toolBtn } from "./util";
 import { FileIcon } from "../shim/ui.js";
 import { ConfirmDialog, type ConfirmState } from "../shim/ui.js";
 import { useResize } from "../shim/ui.js";
@@ -40,6 +40,9 @@ interface CommitView { hash: string; files: CommitFile[]; log: GraphCommit[]; me
 // Per folder, kept across mounts: a pane unmounts on every tab or workspace switch, and coming
 // back to find the diffs you had open gone is losing your place. View state, so not on disk.
 const kept = new Map<string, { diff: Diff | null; commit: CommitView | null; repo: string; file: string | null }>();
+
+/** The way back from a diff or a pull request to the graph: a labelled toolbar button. */
+const backBtn = "flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[12px] text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary";
 
 export default function GraphPane({ cwd }: { cwd: string }) {
   const k = kept.get(cwd);
@@ -186,25 +189,23 @@ export default function GraphPane({ cwd }: { cwd: string }) {
     }}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {pr != null && !diff && (
-          <div className="flex h-8 shrink-0 items-center gap-2 border-b border-subtle px-2 text-[12px]">
-            <button onClick={() => setPr(null)} title="Back to the graph (Esc)"
-              className="flex items-center gap-1 rounded px-1.5 py-0.5 text-text-secondary hover:bg-white/5 hover:text-text-primary">
+          <div className="flex h-9 shrink-0 items-center gap-2 border-b border-subtle px-1.5 text-[12.5px]">
+            <button onClick={() => setPr(null)} title="Back to the graph (Esc)" className={backBtn}>
               <ArrowLeft size={13} /> Graph
             </button>
-            <span className="min-w-0 flex-1 truncate text-text-primary">{prTitle || `#${pr}`}</span>
-            <button onClick={() => setPr(null)} title="Close" className="vscode-toggle"><X size={14} /></button>
+            <span className="min-w-0 flex-1 truncate font-medium text-text-primary">{prTitle || `#${pr}`}</span>
+            <button onClick={() => setPr(null)} title="Close" className={toolBtn}><X size={14} /></button>
           </div>
         )}
         {diff && (
           // Esc goes back too, from anywhere in the diff.
-          <div className="flex h-8 shrink-0 items-center gap-2 border-b border-subtle px-2 text-[12px]">
-            <button onClick={() => setDiff(null)} title="Back to the graph (Esc)"
-              className="flex items-center gap-1 rounded px-1.5 py-0.5 text-text-secondary hover:bg-white/5 hover:text-text-primary">
+          <div className="flex h-9 shrink-0 items-center gap-2 border-b border-subtle px-1.5 text-[12.5px]">
+            <button onClick={() => setDiff(null)} title="Back to the graph (Esc)" className={backBtn}>
               <ArrowLeft size={13} /> Graph
             </button>
-            <FileIcon icon={theme.file(baseName(diff.path))} size={16} />
+            <FileIcon icon={theme.file(baseName(diff.path))} size={15} />
             <span className="min-w-0 flex-1 truncate text-text-primary" title={diff.path}>{diff.title}</span>
-            <button onClick={() => setDiff(null)} title="Close" className="vscode-toggle"><X size={14} /></button>
+            <button onClick={() => setDiff(null)} title="Close" className={toolBtn}><X size={14} /></button>
           </div>
         )}
         <div className="relative min-h-0 flex-1">
@@ -212,7 +213,14 @@ export default function GraphPane({ cwd }: { cwd: string }) {
               keeps its scroll position. */}
           <div className={diff || pr != null ? "hidden" : "h-full"}>
             {repos === null ? null
-              : !repo ? <div className="flex h-full items-center justify-center text-sm text-text-muted">No git repository in this folder.</div>
+              : !repo ? (
+                <div className="flex h-full items-center justify-center px-6">
+                  <div className="flex max-w-sm items-start gap-2.5 rounded-lg border border-subtle bg-elev px-3 py-3 text-[12px] leading-relaxed text-text-muted">
+                    <FolderGit2 size={16} className="mt-0.5 shrink-0" />
+                    <span>No git repository in this folder. Open the workspace on a folder that holds one, or run <span className="font-mono text-text-secondary">git init</span> in a terminal here, to see its history.</span>
+                  </div>
+                </div>
+              )
               // Keyed: the graph reads its state once on mount, so a new repo needs a new graph.
               : <GitGraph key={`${repo}:${file ?? ""}`} root={repo} onConfirm={setConfirm}
                   rel={file ?? undefined} onClearFile={() => setFile(null)} focusHash={focusHash}
@@ -221,7 +229,7 @@ export default function GraphPane({ cwd }: { cwd: string }) {
                   // Several repos under this folder: the picker sits at the toolbar's left.
                   toolbarStart={repos.length > 1 && (
                     <select value={repo} onChange={(e) => pickRepo(e.target.value)} title="Repository"
-                      className="vscode-input max-w-40 px-1.5 text-[12px]">
+                      className="h-7 max-w-40 rounded-lg border border-subtle bg-elev px-2 text-[12px] text-text-primary outline-none transition-colors hover:border-strong focus:border-[var(--accent)]">
                       {repos.map((r) => <option key={r} value={r}>{repoLabel(cwd, r)}</option>)}
                     </select>
                   )} />}
@@ -245,8 +253,8 @@ export default function GraphPane({ cwd }: { cwd: string }) {
         <>
           {/* On the right, as GitKraken has it: the graph reads left to right into the details. */}
           <div {...sideDrag} title="Drag to resize"
-            className="w-1 shrink-0 cursor-col-resize border-l border-subtle transition-colors hover:bg-white/20" />
-          <div className="flex min-h-0 shrink-0 flex-col" style={{ width: sideW }}>
+            className="my-3 w-1.5 shrink-0 cursor-col-resize rounded-full transition-colors hover:bg-[var(--accent)]" />
+          <div className="my-1.5 mr-1.5 flex min-h-0 shrink-0 flex-col overflow-hidden rounded-[10px] border border-subtle bg-panel" style={{ width: sideW }}>
             {prsOpen ? (
               <PrList root={repo} selected={pr} onOpen={(n, title) => { setPr(n); setPrTitle(title); setDiff(null); }} onClose={() => setPrsOpen(false)} />
             ) : commit && commit.hash === WORKTREE ? (

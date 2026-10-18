@@ -5,7 +5,7 @@
 // the two lists here, and the graph only needs to know that something changed, which it hears
 // through GIT_CHANGED.
 import { Fragment, useEffect, useState } from "react";
-import { Plus, Minus, Undo2, X, FileSymlink, History, Sparkles, Loader2, ChevronRight, ChevronDown, List, ListTree, ArrowUpFromLine, RefreshCw } from "lucide-react";
+import { Plus, Minus, Undo2, X, FileSymlink, History, Sparkles, Loader2, ChevronRight, ChevronDown, List, ListTree, ArrowUpFromLine, RefreshCw, Check } from "lucide-react";
 import {
   gitStatus, gitDiscard, gitAiCommitMsg, gitFileBytes, fsReadBytes, type GitStatusRow,
 } from "../shim/bridge.js";
@@ -16,7 +16,7 @@ import { ContextMenu } from "../shim/ui.js";
 import type { IconTheme } from "../shim/ui.js";
 import { useEditorSettings } from "../shim/ui.js";
 import { statusColor, buildChangeTree, collectFiles, type TreeNodeOf } from "../shim/ui.js";
-import { baseName } from "./util";
+import { baseName, iconBtn, dangerBtn, toolBtn, field, heading, countChip, accentFill } from "./util";
 import { primaryRemote } from "./prs";
 import { decodeText } from "../shim/ui.js";
 
@@ -181,29 +181,29 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
     const name = baseName(r.rel);
     const dir = depth === undefined ? r.rel.slice(0, -name.length).replace(/\/$/, "") : "";
     return (
-      <div key={rowKey(r)} className={"group flex h-[22px] items-center gap-1.5 rounded px-1 hover:bg-elev hover:text-text-primary "
-        + (selected === rowKey(r) ? "bg-elev text-text-primary" : "text-text-secondary")}
-        style={depth !== undefined ? { paddingLeft: 6 + depth * 14 } : undefined}>
+      <div key={rowKey(r)} className={"group flex h-6 items-center gap-1.5 rounded-md pl-1.5 pr-1 text-[12.5px] transition-colors "
+        + (selected === rowKey(r) ? "text-text-primary" : "text-text-secondary hover:bg-white/5 hover:text-text-primary")}
+        style={{ paddingLeft: depth !== undefined ? 6 + depth * 14 : undefined, background: selected === rowKey(r) ? "var(--accent-soft)" : undefined }}>
         <button onClick={() => onOpenFile(r)} title={r.rel} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
           {depth !== undefined && <span className="w-3 shrink-0" /> /* align with folder chevrons */}
-          <FileIcon icon={theme.file(name)} size={16} />
+          <FileIcon icon={theme.file(name)} size={15} />
           {/* Both may shrink, the folder first: a long name used to keep its full width and run
               over the row's stage / discard buttons. */}
           <span className="min-w-0 truncate" style={{ color: statusColor(r.letter) }}>{name}</span>
           {dir && <span className="min-w-0 shrink-[4] truncate text-[11px] text-text-muted">{dir}</span>}
         </button>
-        <span className="hidden shrink-0 items-center group-hover:flex">
-          {r.letter !== "D" && <button onClick={() => onEditFile(r)} title="Open File" className="vscode-toggle"><FileSymlink size={13} /></button>}
+        <span className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
+          {r.letter !== "D" && <button onClick={() => onEditFile(r)} title="Open File" className={iconBtn}><FileSymlink size={13} /></button>}
           {/* A new or untracked file has no history yet. */}
           {onFileHistory && r.letter !== "?" && r.letter !== "A" && (
-            <button onClick={() => onFileHistory(r)} title="File history in the graph" className="vscode-toggle"><History size={13} /></button>
+            <button onClick={() => onFileHistory(r)} title="File history in the graph" className={iconBtn}><History size={13} /></button>
           )}
-          {!r.staged && <button onClick={() => discard([r])} title="Discard changes" className="vscode-toggle"><Undo2 size={13} /></button>}
+          {!r.staged && <button onClick={() => discard([r])} title="Discard changes" className={dangerBtn}><Undo2 size={13} /></button>}
           {r.staged
-            ? <button onClick={() => void run(() => gitUnstage(root, [r.rel]), "Unstage failed.")} title="Unstage" className="vscode-toggle"><Minus size={13} /></button>
-            : <button onClick={() => void run(() => gitStage(root, [r.rel]), "Stage failed.")} title="Stage" className="vscode-toggle"><Plus size={13} /></button>}
+            ? <button onClick={() => void run(() => gitUnstage(root, [r.rel]), "Unstage failed.")} title="Unstage" className={iconBtn}><Minus size={13} /></button>
+            : <button onClick={() => void run(() => gitStage(root, [r.rel]), "Stage failed.")} title="Stage" className={iconBtn}><Plus size={13} /></button>}
         </span>
-        <span className="w-4 shrink-0 text-center text-[11px] font-bold" style={{ color: statusColor(r.letter) }}>{r.letter}</span>
+        <span className="w-4 shrink-0 text-center text-[11px] font-semibold" style={{ color: statusColor(r.letter) }}>{r.letter}</span>
       </div>
     );
   };
@@ -212,12 +212,14 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
     const open = !folded.has(title);
     return (
       <div className="mb-1">
-        <div className="flex h-6 items-center gap-1 px-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
-          <button onClick={() => fold(title)} title={open ? "Collapse" : "Expand"} className="flex min-w-0 flex-1 items-center gap-1 text-left hover:text-text-primary">
-            <ChevronRight size={12} className="shrink-0 transition-transform" style={{ transform: open ? "rotate(90deg)" : "none" }} />
-            <span>{title}</span><span className="tabular-nums">{list.length}</span>
+        {/* The section's actions show while its heading is hovered, as a row's do. */}
+        <div className="group flex h-7 items-center gap-1 rounded-md px-1">
+          <button onClick={() => fold(title)} title={open ? "Collapse" : "Expand"} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+            <ChevronRight size={12} className="shrink-0 text-text-muted transition-transform" style={{ transform: open ? "rotate(90deg)" : "none" }} />
+            <span className={heading}>{title}</span>
           </button>
-          <span className="flex items-center">{list.length > 0 && action}</span>
+          <span className="hidden items-center gap-0.5 group-hover:flex">{list.length > 0 && action}</span>
+          <span className={"ml-1 " + countChip}>{list.length}</span>
         </div>
         {open && (treeView
           ? buildChangeTree(list).map((n) => treeNode(n, 0, title))
@@ -231,19 +233,19 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
     const open = !folded.has(key);
     return (
       <Fragment key={key}>
-        <div className="group flex h-[22px] items-center gap-1 rounded px-1 text-[13px] text-text-secondary hover:bg-elev hover:text-text-primary"
+        <div className="group flex h-6 items-center gap-1 rounded-md pr-1 text-[12.5px] text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary"
           style={{ paddingLeft: 6 + depth * 14 }}>
-          <button onClick={() => fold(key)} className="flex min-w-0 flex-1 items-center gap-1 text-left">
+          <button onClick={() => fold(key)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
             <ChevronRight size={12} className="shrink-0 text-text-muted transition-transform" style={{ transform: open ? "rotate(90deg)" : "none" }} />
-            <FileIcon icon={theme.folder(n.name, open)} size={16} />
+            <FileIcon icon={theme.folder(n.name, open)} size={15} />
             <span className="truncate">{n.name}</span>
           </button>
           {/* What a file row offers, for everything in the folder. */}
-          <span className="hidden shrink-0 items-center group-hover:flex">
-            {at.startsWith("Unstaged") && <button onClick={() => discard(collectFiles(n))} title="Discard changes in folder" className="vscode-toggle"><Undo2 size={13} /></button>}
+          <span className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
+            {at.startsWith("Unstaged") && <button onClick={() => discard(collectFiles(n))} title="Discard changes in folder" className={dangerBtn}><Undo2 size={13} /></button>}
             {at.startsWith("Staged")
-              ? <button onClick={() => void run(() => gitUnstage(root, collectFiles(n).map((r) => r.rel)), "Unstage failed.")} title="Unstage folder" className="vscode-toggle"><Minus size={13} /></button>
-              : <button onClick={() => void run(() => gitStage(root, collectFiles(n).map((r) => r.rel)), "Stage failed.")} title="Stage folder" className="vscode-toggle"><Plus size={13} /></button>}
+              ? <button onClick={() => void run(() => gitUnstage(root, collectFiles(n).map((r) => r.rel)), "Unstage failed.")} title="Unstage folder" className={iconBtn}><Minus size={13} /></button>
+              : <button onClick={() => void run(() => gitStage(root, collectFiles(n).map((r) => r.rel)), "Stage failed.")} title="Stage folder" className={iconBtn}><Plus size={13} /></button>}
           </span>
         </div>
         {open && n.children.map((c) => treeNode(c, depth + 1, key))}
@@ -253,52 +255,59 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-0.5 border-b border-subtle px-2 py-1">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Uncommitted changes</span>
-        <button onClick={onToggleTree} title={treeView ? "View as List" : "View as Tree"} className="vscode-toggle ml-auto">
+      <div className="flex shrink-0 items-center gap-0.5 px-2.5 pb-1 pt-2">
+        <span className="min-w-0 truncate text-[12.5px] font-medium text-text-primary">Uncommitted changes</span>
+        <button onClick={onToggleTree} title={treeView ? "View as List" : "View as Tree"} className={toolBtn + " ml-auto"}>
           {treeView ? <List size={14} /> : <ListTree size={14} />}
         </button>
-        <button onClick={onClose} title="Close" className="vscode-toggle"><X size={14} /></button>
+        <button onClick={onClose} title="Close" className={toolBtn}><X size={14} /></button>
       </div>
 
-      <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-1.5 py-1">
-        {rows.length === 0 && <p className="px-2 py-3 text-xs text-text-muted">No changes.</p>}
+      <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
+        {rows.length === 0 && (
+          <div className="flex items-start gap-2 px-2.5 py-2 text-[12px] leading-relaxed text-text-muted">
+            <Check size={14} className="mt-0.5 shrink-0" style={{ color: "var(--accent)" }} />
+            <span>Nothing to commit. Every file matches the last commit.</span>
+          </div>
+        )}
         {section("Unstaged", unstaged, <>
-          <button onClick={() => discard(unstaged)} title="Discard all" className="vscode-toggle"><Undo2 size={13} /></button>
-          <button onClick={() => void run(() => gitStage(root, []), "Stage failed.")} title="Stage all" className="vscode-toggle"><Plus size={13} /></button>
+          <button onClick={() => discard(unstaged)} title="Discard all" className={dangerBtn}><Undo2 size={13} /></button>
+          <button onClick={() => void run(() => gitStage(root, []), "Stage failed.")} title="Stage all" className={iconBtn}><Plus size={13} /></button>
         </>)}
         {section("Staged", staged,
-          <button onClick={() => void run(() => gitUnstage(root, []), "Unstage failed.")} title="Unstage all" className="vscode-toggle"><Minus size={13} /></button>)}
+          <button onClick={() => void run(() => gitUnstage(root, []), "Unstage failed.")} title="Unstage all" className={iconBtn}><Minus size={13} /></button>)}
       </div>
 
       {/* The commit box. Ctrl+Enter commits from either field. */}
-      <div className="space-y-1.5 border-t border-subtle p-2"
+      <div className="space-y-1.5 border-t border-subtle px-2.5 pb-2.5 pt-2"
         onKeyDown={(e) => { if (e.key === "Enter" && e.ctrlKey) { e.preventDefault(); void commit(); } }}>
-        <div className="flex items-center gap-1">
+        <div className="relative">
           {/* One line of text, wrapped onto as many rows as it needs (field-sizing grows the box
               to fit). Enter would only add a line break a summary cannot have; Ctrl+Enter still
               commits, from the box's keydown. */}
           <textarea value={summary} onChange={(e) => setSummary(e.target.value.replace(/\r?\n/g, " "))} placeholder="Summary" rows={1}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.ctrlKey) e.preventDefault(); }}
             style={{ height: "auto", fieldSizing: "content" } as React.CSSProperties}
-            className="vscode-input min-w-0 flex-1 resize-none px-2 py-1 placeholder:text-text-muted" />
-          <button onClick={() => void generate()} disabled={!!busy} title="Generate a message with AI" className="vscode-toggle disabled:opacity-40">
+            className={field + " block resize-none px-2.5 py-1.5 pr-8 leading-5"} />
+          {/* Inside the box, at its end, as a field's own controls are. */}
+          <button onClick={() => void generate()} disabled={!!busy} title="Generate a message with AI"
+            className="absolute right-1 top-1 grid size-6 place-items-center rounded-md text-text-muted transition-colors hover:bg-white/5 hover:text-[var(--accent)] disabled:opacity-40">
             {busy === "ai" ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
           </button>
         </div>
         <textarea value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Description" rows={7}
-          // vscode-input fixes the height at one line, which is what kept `rows` from applying.
+          // An explicit height of auto, so `rows` sets it (a fixed field height kept it from applying).
           style={{ height: "auto" }}
-          className="vscode-input w-full resize-y px-2 py-1 placeholder:text-text-muted" />
-        <label className="flex items-center gap-1.5 text-[11px] text-text-secondary">
-          <input type="checkbox" checked={amend} onChange={(e) => setAmend(e.target.checked)} />
+          className={field + " block resize-y px-2.5 py-1.5 leading-5"} />
+        <label className="flex items-center gap-1.5 text-[11.5px] text-text-secondary">
+          <input type="checkbox" className="accent-[var(--accent)]" checked={amend} onChange={(e) => setAmend(e.target.checked)} />
           Amend the previous commit
         </label>
         {/* A split button: commit, or the arrow for commit-then-push / -sync. */}
-        <div className="flex overflow-hidden rounded text-[12px] font-medium text-white" style={{ background: "var(--accent)" }}>
+        <div className="flex h-8 overflow-hidden rounded-lg text-[12.5px] font-medium text-white" style={accentFill}>
           <button onClick={() => void commit()} disabled={!canCommit}
-            className="flex min-w-0 flex-1 items-center justify-center gap-1.5 py-1.5 hover:brightness-110 disabled:opacity-40">
-            {busy === "commit" && <Loader2 size={13} className="animate-spin" />}
+            className="flex min-w-0 flex-1 items-center justify-center gap-1.5 hover:brightness-110 disabled:opacity-50">
+            {busy === "commit" ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
             <span className="truncate">
               {amend ? "Amend previous commit"
                 : staged.length ? `Commit ${staged.length} staged file${staged.length === 1 ? "" : "s"}`
@@ -307,7 +316,7 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
           </button>
           <button disabled={!canCommit} title="Commit options"
             onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setCommitMenu({ x: r.right, y: r.top - 4 }); }}
-            className="border-l border-white/25 px-2 hover:brightness-110 disabled:opacity-40"><ChevronDown size={13} /></button>
+            className="flex items-center border-l border-white/20 px-2 hover:brightness-110 disabled:opacity-50"><ChevronDown size={14} /></button>
         </div>
         {commitMenu && (
           <ContextMenu x={commitMenu.x} y={commitMenu.y} alignRight onClose={() => setCommitMenu(null)} items={[
