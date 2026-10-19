@@ -1224,6 +1224,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
     "plugin:git:next-match": () => nextMatch(1),
     "plugin:git:prev-match": () => nextMatch(-1),
     "plugin:git:head": () => { if (head) go(head); },
+    "plugin:git:undo": () => void runUndo(),
   };
   const releaseKeys = useRef<(() => void) | null>(null);
   // On screen or not, observed rather than assumed: a graph in a zone that is scrolled away, or
@@ -1258,7 +1259,6 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
 
   // j/k or the arrows walk the rows, Home/End jump to the ends — GitKraken's keys.
   const onListKey = (e: React.KeyboardEvent) => {
-    if (e.key === "z" && e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); void runUndo(); return; }
     const at = vms.findIndex((v) => v.commit.hash === expanded);
     const to = e.key === "ArrowDown" || e.key === "j" ? Math.min(at + 1, vms.length - 1)
       : e.key === "ArrowUp" || e.key === "k" ? Math.max(at - 1, 0)

@@ -20,6 +20,7 @@ export const keybindings = () => [
   { id: "next-match", title: "Next search match", defaultChord: "n" },
   { id: "prev-match", title: "Previous search match", defaultChord: "shift+n" },
   { id: "head", title: "Jump to HEAD", defaultChord: "h" },
+  { id: "undo", title: "Undo the last change", defaultChord: "ctrl+z" },
 ];
 
 export function dispose() { stopListening(); }
