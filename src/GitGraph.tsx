@@ -675,6 +675,9 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
   const [dropMenu, setDropMenu] = useState<{ x: number; y: number; from: RefGroup; to: RefGroup } | null>(null);
   const commitsRef = useRef(commits);
   commitsRef.current = commits;
+  // The window the graph is in, set as a pill is pressed: Deck's main one, or a floating window,
+  // whose moves and drop target the main one never sees.
+  const [dragWin, setDragWin] = useState<Window>(window);
   useEffect(() => {
     const move = (e: PointerEvent) => {
       const d = dragFrom.current;
@@ -692,16 +695,16 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
       setDrag(null);
       suppressClick.current = true;
       setTimeout(() => { suppressClick.current = false; }, 0);
-      const name = (document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-ref-group]") as HTMLElement | null)?.dataset.refGroup;
+      const name = (dragWin.document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-ref-group]") as HTMLElement | null)?.dataset.refGroup;
       const to = name && name !== d.g.name
         ? commitsRef.current.flatMap((c) => groupRefs(c.refs)).find((g) => g.name === name && isBranch(g))
         : undefined;
       if (to) setDropMenu({ x: e.clientX, y: e.clientY, from: d.g, to });
     };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
-  }, []);
+    dragWin.addEventListener("pointermove", move);
+    dragWin.addEventListener("pointerup", up);
+    return () => { dragWin.removeEventListener("pointermove", move); dragWin.removeEventListener("pointerup", up); };
+  }, [dragWin]);
   const checkPending = () => gitPendingOp(root).then(setPending).catch(() => setPending(""));
   useEffect(() => { void checkPending(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [root]);
 
@@ -877,7 +880,11 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
     return (
       <span
         data-ref-group={!ghost && isBranch(g) ? g.name : undefined}
-        onPointerDown={(e) => { if (!ghost && isBranch(g) && e.button === 0) dragFrom.current = { g, x: e.clientX, y: e.clientY }; }}
+        onPointerDown={(e) => {
+          if (ghost || !isBranch(g) || e.button !== 0) return;
+          dragFrom.current = { g, x: e.clientX, y: e.clientY };
+          setDragWin(e.currentTarget.ownerDocument.defaultView ?? window);
+        }}
         onClick={openRef(primary)} onContextMenu={openRef(primary)}
         title={ghost ? `On ${g.name}` : [g.local?.label, ...g.remotes.map((r) => r.label), g.tag && `tag ${g.tag.label}`].filter(Boolean).join(" · ")}
         className={"flex h-[18px] min-w-0 shrink select-none items-center gap-1 rounded px-1.5 text-[11px] font-medium text-text-primary "
