@@ -3,10 +3,11 @@
 //
 // Split out of Editor.tsx: they own no editor state, taking a commit and callbacks.
 import { useEffect, useState } from "react";
+import { GitCompare } from "lucide-react";
 import { WORKTREE, avatarOf } from "./GitGraph";
 import { ChevronRight, List, ListTree, X, History, FileSymlink, Loader2 } from "lucide-react";
-import type { CommitFile, GraphCommit } from "../shim/bridge.js";
-import { FileIcon } from "../shim/ui.js";
+import { fsReveal, type CommitFile, type GraphCommit } from "../shim/bridge.js";
+import { ContextMenu, FileIcon, type MenuEntry } from "../shim/ui.js";
 import type { IconTheme } from "../shim/ui.js";
 import { buildChangeTree, statusColor, type TreeNodeOf } from "../shim/ui.js";
 import { baseName, iconBtn, toolBtn } from "./util";
@@ -18,7 +19,7 @@ import { baseName, iconBtn, toolBtn } from "./util";
  * panels read as one thing. No staging actions: a commit is history, there is nothing to stage,
  * discard or unstage. Clicking opens that file's diff against the commit's parent.
  */
-export function CommitRow({ node, depth, theme, onOpen, onEdit, activeRel, onHistory }: {
+export function CommitRow({ node, depth, theme, onOpen, onEdit, activeRel, onHistory, onMenu }: {
   node: TreeNodeOf<CommitFile>; depth: number; theme: IconTheme; onOpen: (f: CommitFile) => void;
   /** The row's Open File button: the file as it is in the working tree now, to edit — the same
    *  button the uncommitted rows have. */
@@ -27,13 +28,16 @@ export function CommitRow({ node, depth, theme, onOpen, onEdit, activeRel, onHis
   activeRel?: string;
   /** The row's History button: the Git Graph filtered to this file. */
   onHistory?: (f: CommitFile) => void;
+  /** A right-click on a file row. */
+  onMenu?: (e: React.MouseEvent, f: CommitFile) => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   if (node.kind === "file") {
     return (
       <div className={"group flex h-6 items-center gap-1.5 rounded-md pr-1 text-[12.5px] transition-colors "
         + (activeRel === node.row.rel ? "text-text-primary" : "text-text-secondary hover:bg-white/5 hover:text-text-primary")}
-        style={{ paddingLeft: 6 + depth * 14, background: activeRel === node.row.rel ? "var(--accent-soft)" : undefined }}>
+        style={{ paddingLeft: 6 + depth * 14, background: activeRel === node.row.rel ? "var(--accent-soft)" : undefined }}
+        onContextMenu={onMenu && ((e) => onMenu(e, node.row))}>
         {/* The name gets every pixel the actions and the letter do not, so it can be read. The line
             counts are a detail, shown on hover after the name, inside the button: a click on them
             still opens the diff and can never land on an action instead. */}
@@ -76,7 +80,7 @@ export function CommitRow({ node, depth, theme, onOpen, onEdit, activeRel, onHis
         </button>
       </div>
       {!collapsed && node.children.map((c, i) => (
-        <CommitRow key={i} node={c} depth={depth + 1} theme={theme} onOpen={onOpen} onEdit={onEdit} activeRel={activeRel} onHistory={onHistory} />
+        <CommitRow key={i} node={c} depth={depth + 1} theme={theme} onOpen={onOpen} onEdit={onEdit} activeRel={activeRel} onHistory={onHistory} onMenu={onMenu} />
       ))}
     </>
   );
@@ -89,8 +93,10 @@ export function CommitRow({ node, depth, theme, onOpen, onEdit, activeRel, onHis
  * this line". Shares Source Control's header, row styling and tree/list preference so it is the
  * same panel with a different source of rows.
  */
-export function CommitPanel({ view, busy, treeView, onToggleTree, theme, onOpenFile, onEditFile, onClose, onFileHistory, activeRel }: {
+export function CommitPanel({ view, root, busy, treeView, onToggleTree, theme, onOpenFile, onEditFile, onClose, onFileHistory, activeRel }: {
   view: { hash: string; files: CommitFile[]; log: GraphCommit[]; meta: GraphCommit | null };
+  /** The repository, for a file's full path in its right-click menu. */
+  root: string;
   busy: boolean;
   treeView: boolean;
   onToggleTree: () => void;
@@ -107,6 +113,25 @@ export function CommitPanel({ view, busy, treeView, onToggleTree, theme, onOpenF
   // the panel. Collapsed again for each commit stepped to.
   const [fullMsg, setFullMsg] = useState(false);
   useEffect(() => setFullMsg(false), [view.hash]);
+  // A file's right-click menu: its diff, the file, its history, its path.
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuEntry[] } | null>(null);
+  const onMenu = (e: React.MouseEvent, f: CommitFile) => {
+    e.preventDefault();
+    // In the repository's own separators: a Windows path stays one.
+    const sep = root.includes("\\") ? "\\" : "/";
+    const path = root.replace(/[\\/]+$/, "") + sep + f.rel.replace(/[\\/]/g, sep), gone = f.letter === "D";
+    const copy = (text: string) => void navigator.clipboard.writeText(text).catch((err) => console.warn("[git] copy failed", err));
+    setMenu({ x: e.clientX, y: e.clientY, items: [
+      { label: "Open Changes", icon: GitCompare, onClick: () => onOpenFile(f) },
+      ...(onEditFile ? [{ label: "Open File", icon: FileSymlink, disabled: gone, onClick: () => onEditFile(f) }] : []),
+      ...(onFileHistory ? [{ label: "File History", icon: History, onClick: () => onFileHistory(f) }] : []),
+      "sep",
+      { label: "Copy Path", onClick: () => copy(path) },
+      { label: "Copy Relative Path", onClick: () => copy(f.rel) },
+      // The file as it is on disk now, which a file this commit deleted may not be.
+      { label: "Reveal in File Explorer", onClick: () => void fsReveal(path).catch((err) => console.warn("[git] reveal failed", err)) },
+    ] });
+  };
   const work = view.hash === WORKTREE;
   // The body without its trailers (Co-Authored-By: …), which are shown apart: the last paragraph,
   // when every line of it is a "Key: value".
@@ -193,12 +218,13 @@ export function CommitPanel({ view, busy, treeView, onToggleTree, theme, onOpenF
         {!busy && view.files.length === 0 && <p className="px-2.5 py-2 text-[12px] leading-relaxed text-text-muted">No files changed in this commit.</p>}
         {!busy && (treeView
           ? buildChangeTree(view.files).map((n, idx) => (
-              <CommitRow key={idx} node={n} depth={0} theme={theme} onOpen={onOpenFile} onEdit={onEditFile} onHistory={onFileHistory} activeRel={activeRel} />
+              <CommitRow key={idx} node={n} depth={0} theme={theme} onOpen={onOpenFile} onEdit={onEditFile} onHistory={onFileHistory} activeRel={activeRel} onMenu={onMenu} />
             ))
           : view.files.map((f) => (
-              <CommitRow key={f.rel} node={{ kind: "file", row: f, name: baseName(f.rel) }} depth={0} theme={theme} onOpen={onOpenFile} onEdit={onEditFile} onHistory={onFileHistory} activeRel={activeRel} />
+              <CommitRow key={f.rel} node={{ kind: "file", row: f, name: baseName(f.rel) }} depth={0} theme={theme} onOpen={onOpenFile} onEdit={onEditFile} onHistory={onFileHistory} activeRel={activeRel} onMenu={onMenu} />
             )))}
       </div>
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </div>
   );
 }

@@ -5,14 +5,14 @@
 // the two lists here, and the graph only needs to know that something changed, which it hears
 // through GIT_CHANGED.
 import { Fragment, useEffect, useState } from "react";
-import { Plus, Minus, Undo2, X, FileSymlink, History, Sparkles, Loader2, ChevronRight, ChevronDown, List, ListTree, ArrowUpFromLine, RefreshCw, Check } from "lucide-react";
+import { Plus, Minus, Undo2, X, FileSymlink, History, Sparkles, Loader2, ChevronRight, ChevronDown, List, ListTree, ArrowUpFromLine, RefreshCw, Check, GitCompare } from "lucide-react";
 import {
-  gitStatus, gitDiscard, gitAiCommitMsg, gitFileBytes, fsReadBytes, type GitStatusRow,
+  gitStatus, gitDiscard, gitAiCommitMsg, gitFileBytes, fsReadBytes, fsReveal, type GitStatusRow,
 } from "../shim/bridge.js";
 import { gitStage, gitUnstage, gitCommit, gitCommitAmend, gitUndoCommit, gitHead, gitPush, gitPushBranch, gitPullRebase, gitRemotes } from "./git";
 import { FileIcon } from "../shim/ui.js";
 import type { ConfirmState } from "../shim/ui.js";
-import { ContextMenu } from "../shim/ui.js";
+import { ContextMenu, type MenuEntry } from "../shim/ui.js";
 import type { IconTheme } from "../shim/ui.js";
 import { useEditorSettings } from "../shim/ui.js";
 import { statusColor, buildChangeTree, collectFiles, type TreeNodeOf } from "../shim/ui.js";
@@ -92,6 +92,8 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
   const [amend, setAmend] = useState(false);
   const [busy, setBusy] = useState<"" | "commit" | "ai">("");
   const [commitMenu, setCommitMenu] = useState<{ x: number; y: number } | null>(null);
+  /** A file's or folder's right-click menu. */
+  const [rowMenu, setRowMenu] = useState<{ x: number; y: number; items: MenuEntry[] } | null>(null);
   // Collapsed sections ("Unstaged", "Staged") and tree-view folders, keyed by list and path so the
   // two lists fold separately.
   const [folded, setFolded] = useState<Set<string>>(kept?.folded ?? new Set());
@@ -119,13 +121,50 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
 
   const unstaged = rows.filter((r) => !r.staged);
   const staged = rows.filter((r) => r.staged);
+  // Staged files are unstaged first, so they go back to the last commit rather than to the index,
+  // and a file only ever added is deleted, as an untracked one is.
   const discard = (list: GitStatusRow[]) => onConfirm({
     title: list.length === 1 ? `Discard changes to ${baseName(list[0].rel)}?`
       : list === unstaged ? `Discard all ${list.length} unstaged changes?` : `Discard ${list.length} changes?`,
-    body: "The working-tree changes are lost; an untracked file is deleted. This cannot be undone.",
+    body: list.some((r) => r.staged)
+      ? "The staged and working-tree changes are lost; a file not in the last commit is deleted. This cannot be undone."
+      : "The working-tree changes are lost; an untracked file is deleted. This cannot be undone.",
     confirmLabel: "Discard", danger: true,
-    onConfirm: () => void run(() => gitDiscard(root, list.map((r) => r.rel)), "Discard failed."),
+    onConfirm: () => void run(async () => {
+      const staged = list.filter((r) => r.staged).map((r) => r.rel);
+      if (staged.length) await gitUnstage(root, staged);
+      await gitDiscard(root, list.map((r) => r.rel));
+    }, "Discard failed."),
   });
+
+  /** A file's right-click menu (`f`), or a folder's (every file under it in `rs`, on one side). */
+  const menuFor = (rs: GitStatusRow[], f: GitStatusRow | null): MenuEntry[] => {
+    const onStaged = !!rs[0]?.staged, n = `${rs.length} file${rs.length === 1 ? "" : "s"}`;
+    const deleted = f?.letter === "D";
+    const copy = (text: string) => void navigator.clipboard.writeText(text).catch((e) => console.warn("[git] copy failed", e));
+    return [
+      ...(f ? [
+        { label: "Open Changes", icon: GitCompare, onClick: () => onOpenFile(f) },
+        { label: "Open File", icon: FileSymlink, disabled: deleted, onClick: () => onEditFile(f) },
+        ...(onFileHistory && f.letter !== "?" && f.letter !== "A" ? [{ label: "File History", icon: History, onClick: () => onFileHistory(f) }] : []),
+        "sep",
+      ] as MenuEntry[] : []),
+      onStaged
+        ? { label: f ? "Unstage Changes" : `Unstage ${n}`, icon: Minus, onClick: () => void run(() => gitUnstage(root, rs.map((r) => r.rel)), "Unstage failed.") }
+        : { label: f ? "Stage Changes" : `Stage ${n}`, icon: Plus, onClick: () => void run(() => gitStage(root, rs.map((r) => r.rel)), "Stage failed.") },
+      { label: f ? "Discard Changes" : `Discard Changes in ${n}`, icon: Undo2, danger: true, onClick: () => discard(rs) },
+      ...(f ? [
+        "sep",
+        { label: "Copy Path", onClick: () => copy(f.path) },
+        { label: "Copy Relative Path", onClick: () => copy(f.rel) },
+        { label: "Reveal in File Explorer", disabled: deleted, onClick: () => void fsReveal(f.path).catch((e) => fail("Reveal failed.", e)) },
+      ] as MenuEntry[] : []),
+    ];
+  };
+  const openMenu = (e: React.MouseEvent, rs: GitStatusRow[], f: GitStatusRow | null) => {
+    e.preventDefault();
+    setRowMenu({ x: e.clientX, y: e.clientY, items: menuFor(rs, f) });
+  };
 
   const message = summary.trim() + (desc.trim() ? "\n\n" + desc.trim() : "");
   // git_commit stages everything when nothing is staged, as Source Control's Commit does.
@@ -183,7 +222,8 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
     return (
       <div key={rowKey(r)} className={"group flex h-6 items-center gap-1.5 rounded-md pl-1.5 pr-1 text-[12.5px] transition-colors "
         + (selected === rowKey(r) ? "text-text-primary" : "text-text-secondary hover:bg-white/5 hover:text-text-primary")}
-        style={{ paddingLeft: depth !== undefined ? 6 + depth * 14 : undefined, background: selected === rowKey(r) ? "var(--accent-soft)" : undefined }}>
+        style={{ paddingLeft: depth !== undefined ? 6 + depth * 14 : undefined, background: selected === rowKey(r) ? "var(--accent-soft)" : undefined }}
+        onContextMenu={(e) => openMenu(e, [r], r)}>
         <button onClick={() => onOpenFile(r)} title={r.rel} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
           {depth !== undefined && <span className="w-3 shrink-0" /> /* align with folder chevrons */}
           <FileIcon icon={theme.file(name)} size={15} />
@@ -234,7 +274,7 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
     return (
       <Fragment key={key}>
         <div className="group flex h-6 items-center gap-1 rounded-md pr-1 text-[12.5px] text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary"
-          style={{ paddingLeft: 6 + depth * 14 }}>
+          style={{ paddingLeft: 6 + depth * 14 }} onContextMenu={(e) => openMenu(e, collectFiles(n), null)}>
           <button onClick={() => fold(key)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
             <ChevronRight size={12} className="shrink-0 text-text-muted transition-transform" style={{ transform: open ? "rotate(90deg)" : "none" }} />
             <FileIcon icon={theme.folder(n.name, open)} size={15} />
@@ -324,6 +364,7 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
             { label: amend ? "Amend & Sync" : "Commit & Sync", subLabel: "Pull with rebase, then push", icon: RefreshCw, onClick: () => void commit("sync") },
           ]} />
         )}
+        {rowMenu && <ContextMenu x={rowMenu.x} y={rowMenu.y} items={rowMenu.items} onClose={() => setRowMenu(null)} />}
       </div>
     </div>
   );

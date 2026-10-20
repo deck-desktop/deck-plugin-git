@@ -267,7 +267,7 @@ export default function GraphPane({ cwd }: { cwd: string }) {
                 // claims the event and switches to that editor.
                 onEditFile={(r) => window.dispatchEvent(new CustomEvent("deck-term-open", { detail: { path: r.path }, cancelable: true }))} />
             ) : commit && <CommitPanel
-              view={commit} busy={busy} treeView={treeView} onToggleTree={() => setTreeView((t) => !t)} theme={theme}
+              view={commit} root={repo} busy={busy} treeView={treeView} onToggleTree={() => setTreeView((t) => !t)} theme={theme}
               onOpenFile={(f) => void openDiff(commit.hash, commit.meta?.parents[0] ?? `${commit.hash}^`, f)}
               // The working-tree file, in the workspace's editor tab — as the uncommitted rows do.
               onEditFile={(f) => window.dispatchEvent(new CustomEvent("deck-term-open", { detail: { path: `${repo}/${f.rel}` }, cancelable: true }))}
