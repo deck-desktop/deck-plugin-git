@@ -8,7 +8,10 @@
 import GraphPane from "./GraphPane";
 import { stopListening } from "./pending";
 
-export const PaneView = ({ cwd }: { cwd: string }) => <GraphPane cwd={cwd} />;
+export { settings } from "./RepoTabs";
+
+// `paneId`: Deck after 1.12 says which pane, so each Git pane keeps its own place.
+export const PaneView = ({ cwd, paneId }: { cwd: string; paneId?: string }) => <GraphPane cwd={cwd} paneId={paneId} />;
 
 // Defaults only; a rebinding in Settings > Keybindings wins. Search answers whenever a graph is on
 // screen, the rest only while the commit list has focus (see GitGraph.tsx).

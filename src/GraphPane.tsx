@@ -18,8 +18,8 @@ import { fsWrite } from "../shim/bridge.js";
 import { gitSetIndexContent } from "./git";
 import { GIT_CHANGED } from "./WorkPanel";
 import { MediaDiff, mediaKind } from "../shim/ui.js";
-import { repoLabel } from "../shim/ui.js";
 import { baseName, toolBtn } from "./util";
+import { RepoSelect, RepoTabs, useRepoTabs } from "./RepoTabs";
 import { FileIcon } from "../shim/ui.js";
 import { ConfirmDialog, type ConfirmState } from "../shim/ui.js";
 import { useResize } from "../shim/ui.js";
@@ -37,15 +37,17 @@ interface Diff {
 }
 interface CommitView { hash: string; files: CommitFile[]; log: GraphCommit[]; meta: GraphCommit | null }
 
-// Per folder, kept across mounts: a pane unmounts on every tab or workspace switch, and coming
+// Per pane (per folder in a Deck too old to say which pane), kept across mounts: a pane unmounts on every tab or workspace switch, and coming
 // back to find the diffs you had open gone is losing your place. View state, so not on disk.
 const kept = new Map<string, { diff: Diff | null; commit: CommitView | null; repo: string; file: string | null }>();
 
 /** The way back from a diff or a pull request to the graph: a labelled toolbar button. */
 const backBtn = "flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[12px] text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary";
 
-export default function GraphPane({ cwd }: { cwd: string }) {
-  const k = kept.get(cwd);
+export default function GraphPane({ cwd, paneId }: { cwd: string; paneId?: string }) {
+  // Two Git panes in one workspace share a folder, so each keeps its place by its pane.
+  const place = paneId ?? cwd;
+  const k = kept.get(place);
   const [diff, setDiff] = useState<Diff | null>(k?.diff ?? null);
   const [commit, setCommit] = useState<CommitView | null>(k?.commit ?? null);
   // The pull-request list in the side panel (in place of the commit), and the one being reviewed
@@ -67,13 +69,14 @@ export default function GraphPane({ cwd }: { cwd: string }) {
       .catch(() => setRepos([]));
   }, [cwd]);
   const pickRepo = (r: string) => { setRepo(r); setCommit(null); setDiff(null); setPr(null); setFile(null); };
+  const repoTabs = useRepoTabs();
   const [busy, setBusy] = useState(false);
   const [treeView, setTreeView] = useState(true);
   // The graph asks before a reset or a branch delete, and refuses the action with no one to ask
   // through — in the editor that is the editor's dialog, here it is this one.
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [sideW, sideDrag] = useResize({ initial: 300, min: 160, max: 520, direction: "horizontal", invert: true });
-  useEffect(() => { kept.set(cwd, { diff, commit, repo, file }); }, [cwd, diff, commit, repo, file]);
+  useEffect(() => { kept.set(place, { diff, commit, repo, file }); }, [place, diff, commit, repo, file]);
   // A commit Deck asked for (the Editor's blame hash): open its repo, unfiltered, with the commit
   // expanded in the graph and its files in the side panel.
   const [focusHash, setFocusHash] = useState<string | undefined>(undefined);
@@ -188,6 +191,8 @@ export default function GraphPane({ cwd }: { cwd: string }) {
       if (diff) { e.preventDefault(); setDiff(null); } else if (pr != null) { e.preventDefault(); setPr(null); }
     }}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {/* Several repos under this folder, as tabs: above the graph, while it shows. */}
+        {repoTabs && repos && repos.length > 1 && !diff && pr == null && <RepoTabs cwd={cwd} repos={repos} repo={repo} onPick={pickRepo} />}
         {pr != null && !diff && (
           <div className="flex h-9 shrink-0 items-center gap-2 border-b border-subtle px-1.5 text-[12.5px]">
             <button onClick={() => setPr(null)} title="Back to the graph (Esc)" className={backBtn}>
@@ -226,13 +231,8 @@ export default function GraphPane({ cwd }: { cwd: string }) {
                   rel={file ?? undefined} onClearFile={() => setFile(null)} focusHash={focusHash}
                   onOpenCommit={(c, files, log) => { setPrsOpen(false); void showCommit(c.hash, log, files && { files, meta: c }); }}
                   onShowPrs={() => setPrsOpen(true)}
-                  // Several repos under this folder: the picker sits at the toolbar's left.
-                  toolbarStart={repos.length > 1 && (
-                    <select value={repo} onChange={(e) => pickRepo(e.target.value)} title="Repository"
-                      className="h-7 max-w-40 rounded-lg border border-subtle bg-elev px-2 text-[12px] text-text-primary outline-none transition-colors hover:border-strong focus:border-[var(--accent)]">
-                      {repos.map((r) => <option key={r} value={r}>{repoLabel(cwd, r)}</option>)}
-                    </select>
-                  )} />}
+                  // Several repos under this folder, as a dropdown: it sits at the toolbar's left.
+                  toolbarStart={repos.length > 1 && !repoTabs && <RepoSelect cwd={cwd} repos={repos} repo={repo} onPick={pickRepo} />} />}
           </div>
           {pr != null && !diff && (
             <PrView key={`${repo}:${pr}`} root={repo} remote="origin" number={pr} theme={theme} onConfirm={setConfirm}
