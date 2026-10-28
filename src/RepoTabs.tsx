@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { configRead, configWrite, gitRun } from "../shim/bridge.js";
 import { listen } from "../shim/event.js";
 import { repoLabel, useRowDrag } from "../shim/ui.js";
+import { useSettings } from "../shim/settings.js";
 import { GIT_CHANGED } from "./WorkPanel";
 import { baseName } from "./util";
 import { inOrder, moved } from "./repoorder";
@@ -115,6 +116,9 @@ export function RepoTabs({ cwd, repos, repo, onPick, onReorder }: {
   cwd: string; repos: string[]; repo: string; onPick: (r: string) => void; onReorder: (from: string, to: string) => void;
 }) {
   const dirty = useDirty(repos);
+  // Each as wide as a workspace tab: Settings' tab width, clamped as the title bar clamps it.
+  // ponytail: the full width only, and the row scrolls; the title bar's "Fit tabs to the bar" is not followed.
+  const width = Math.min(320, Math.max(120, useSettings().tabWidth ?? 160));
   const drag = useRowDrag((from, target) => { if (target && target.id !== from) onReorder(from, target.id); });
   const strip = useRef<HTMLDivElement>(null);
   // The open one in view, also when the pane comes back on a repo far along the row.
@@ -133,11 +137,11 @@ export function RepoTabs({ cwd, repos, repo, onPick, onReorder }: {
           <button key={r} {...{ [DRAG_ID]: r }} title={r} onMouseDown={drag.startDrag(r)}
             // Click, not mousedown: a state change during mousedown aborts the drag (dragrow).
             onClick={() => { if (!drag.justDragged() && !on) onPick(r); }}
-            className={"relative flex h-7 max-w-[200px] flex-none cursor-default select-none items-center gap-1.5 rounded-md px-2.5 text-[12px] transition-colors "
+            className={"relative flex h-7 flex-none cursor-default select-none items-center gap-1.5 rounded-md px-2.5 text-[12px] transition-colors "
               + (on ? "font-medium text-text-primary" : "bg-[color-mix(in_srgb,var(--bg-elev)_50%,transparent)] text-text-muted hover:bg-[var(--bg-hover)] hover:text-text-primary")
               + (drag.dragId === r ? " ring-1 ring-[var(--accent)]" : "")}
-            style={on ? { background: "var(--bg-elev)", boxShadow: "inset 0 0 0 1px var(--border-strong)" } : undefined}>
-            <span className="min-w-0 truncate">{name}</span>
+            style={{ width, ...(on ? { background: "var(--bg-elev)", boxShadow: "inset 0 0 0 1px var(--border-strong)" } : {}) }}>
+            <span className="min-w-0 flex-1 truncate text-left">{name}</span>
             {dirty.has(r) && <span title="Uncommitted changes" className="size-1.5 shrink-0 rounded-full" style={{ background: CHANGED }} />}
             {on && <span aria-hidden className="pointer-events-none absolute inset-x-2 -bottom-[5px] h-0.5 rounded-full" style={{ background: "var(--accent)" }} />}
           </button>
