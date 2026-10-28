@@ -1,10 +1,10 @@
-// A folder holding several repositories: how the pane picks one. Tabs like the workspace tabs in the
-// title bar, which can be dragged into an order of your own and show a dot for uncommitted changes,
+// A folder holding several repositories: how the pane picks one. Tabs that look like the workspace
+// tabs in the title bar, which can be dragged into an order of your own and show a dot for uncommitted changes,
 // or a dropdown in the graph's toolbar, as the user sets it.
 import { useEffect, useRef, useState } from "react";
 import { configRead, configWrite, gitRun } from "../shim/bridge.js";
 import { listen } from "../shim/event.js";
-import { repoLabel, TabStrip } from "../shim/ui.js";
+import { repoLabel, useRowDrag } from "../shim/ui.js";
 import { GIT_CHANGED } from "./WorkPanel";
 import { baseName } from "./util";
 import { inOrder, moved } from "./repoorder";
@@ -104,24 +104,45 @@ export function RepoSelect({ cwd, repos, repo, onPick }: { cwd: string; repos: s
   );
 }
 
+// The workspace tabs' look (Deck's modules/terminals/TabStrip.tsx, the title bar), drawn here rather
+// than through Deck's shared TabStrip, which has no such variant: every tab on a faint surface of its
+// own, the open one raised with the accent line under it. No icon: every tab would have the same one.
+const DRAG_ID = "data-drag-id"; // dragrow's ROW_ATTR: the shim forwards functions, not constants
+const CHANGED = "#facc15";
+
 /** The tabs, each named by its folder (its path under the workspace when two share a name). */
 export function RepoTabs({ cwd, repos, repo, onPick, onReorder }: {
   cwd: string; repos: string[]; repo: string; onPick: (r: string) => void; onReorder: (from: string, to: string) => void;
 }) {
   const dirty = useDirty(repos);
+  const drag = useRowDrag((from, target) => { if (target && target.id !== from) onReorder(from, target.id); });
   const strip = useRef<HTMLDivElement>(null);
   // The open one in view, also when the pane comes back on a repo far along the row.
   useEffect(() => {
-    strip.current?.querySelector(`[data-repo="${CSS.escape(repo)}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    strip.current?.querySelector(`[${DRAG_ID}="${CSS.escape(repo)}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [repo]);
   const names = repos.map((r) => baseName(r));
-  const tabs = repos.map((r, i) => ({
-    id: r, dirty: dirty.has(r),
-    title: <span data-repo={r} title={r}>{names.indexOf(names[i]) !== names.lastIndexOf(names[i]) ? repoLabel(cwd, r) : names[i]}</span>,
-  }));
   return (
-    <div ref={strip}>
-      <TabStrip pill tabs={tabs} activeId={repo} onSelect={(r) => { if (r !== repo) onPick(r); }} onReorder={onReorder} />
+    // h-10 leaves room under the h-7 tabs, inside the row (which clips, as it scrolls), for the line.
+    <div ref={strip} className="no-drag flex h-10 shrink-0 items-center gap-1 overflow-x-auto border-b border-subtle px-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      onWheel={(e) => { if (e.deltaY !== 0) e.currentTarget.scrollLeft += e.deltaY; }}>
+      {repos.map((r, i) => {
+        const on = r === repo;
+        const name = names.indexOf(names[i]) !== names.lastIndexOf(names[i]) ? repoLabel(cwd, r) : names[i];
+        return (
+          <button key={r} {...{ [DRAG_ID]: r }} title={r} onMouseDown={drag.startDrag(r)}
+            // Click, not mousedown: a state change during mousedown aborts the drag (dragrow).
+            onClick={() => { if (!drag.justDragged() && !on) onPick(r); }}
+            className={"relative flex h-7 max-w-[200px] flex-none cursor-default select-none items-center gap-1.5 rounded-md px-2.5 text-[12px] transition-colors "
+              + (on ? "font-medium text-text-primary" : "bg-[color-mix(in_srgb,var(--bg-elev)_50%,transparent)] text-text-muted hover:bg-[var(--bg-hover)] hover:text-text-primary")
+              + (drag.dragId === r ? " ring-1 ring-[var(--accent)]" : "")}
+            style={on ? { background: "var(--bg-elev)", boxShadow: "inset 0 0 0 1px var(--border-strong)" } : undefined}>
+            <span className="min-w-0 truncate">{name}</span>
+            {dirty.has(r) && <span title="Uncommitted changes" className="size-1.5 shrink-0 rounded-full" style={{ background: CHANGED }} />}
+            {on && <span aria-hidden className="pointer-events-none absolute inset-x-2 -bottom-[5px] h-0.5 rounded-full" style={{ background: "var(--accent)" }} />}
+          </button>
+        );
+      })}
     </div>
   );
 }
