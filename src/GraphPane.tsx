@@ -19,7 +19,7 @@ import { gitSetIndexContent } from "./git";
 import { GIT_CHANGED } from "./WorkPanel";
 import { MediaDiff, mediaKind } from "../shim/ui.js";
 import { baseName, toolBtn } from "./util";
-import { RepoSelect, RepoTabs, useRepoOrder, useRepoTabs } from "./RepoTabs";
+import { RepoSelect, RepoTabs, useRepoList, useRepoTabs } from "./RepoTabs";
 import { FileIcon } from "../shim/ui.js";
 import { ConfirmDialog, type ConfirmState } from "../shim/ui.js";
 import { useResize } from "../shim/ui.js";
@@ -70,8 +70,15 @@ export default function GraphPane({ cwd, paneId }: { cwd: string; paneId?: strin
   }, [cwd]);
   const pickRepo = (r: string) => { setRepo(r); setCommit(null); setDiff(null); setPr(null); setFile(null); };
   const repoTabs = useRepoTabs();
-  // The repos in the order you dragged the tabs into, for the tabs and the dropdown alike.
-  const [sorted, reorder] = useRepoOrder(cwd, repos ?? []);
+  // The repos in the order you dragged the tabs into, less the tabs you closed, for the tabs; the
+  // dropdown (which lists the closed ones too, having no + to bring them back). Closing the open
+  // one opens its neighbour.
+  const list = useRepoList(cwd, repos ?? []);
+  const hideRepo = (r: string) => {
+    const at = list.shown.indexOf(r);
+    list.hide(r);
+    if (r === repo) pickRepo(list.shown[at + 1] ?? list.shown[at - 1] ?? r);
+  };
   const [busy, setBusy] = useState(false);
   const [treeView, setTreeView] = useState(true);
   // The graph asks before a reset or a branch delete, and refuses the action with no one to ask
@@ -194,7 +201,7 @@ export default function GraphPane({ cwd, paneId }: { cwd: string; paneId?: strin
     }}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* Several repos under this folder, as tabs: above the graph, while it shows. */}
-        {repoTabs && repos && repos.length > 1 && !diff && pr == null && <RepoTabs cwd={cwd} repos={sorted} repo={repo} onPick={pickRepo} onReorder={reorder} />}
+        {repoTabs && repos && repos.length > 1 && !diff && pr == null && <RepoTabs repos={list.shown} hidden={list.hidden} repo={repo} onPick={pickRepo} onReorder={list.reorder} onHide={hideRepo} onShow={list.show} />}
         {pr != null && !diff && (
           <div className="flex h-9 shrink-0 items-center gap-2 border-b border-subtle px-1.5 text-[12.5px]">
             <button onClick={() => setPr(null)} title="Back to the graph (Esc)" className={backBtn}>
@@ -234,7 +241,7 @@ export default function GraphPane({ cwd, paneId }: { cwd: string; paneId?: strin
                   onOpenCommit={(c, files, log) => { setPrsOpen(false); void showCommit(c.hash, log, files && { files, meta: c }); }}
                   onShowPrs={() => setPrsOpen(true)}
                   // Several repos under this folder, as a dropdown: it sits at the toolbar's left.
-                  toolbarStart={repos.length > 1 && !repoTabs && <RepoSelect cwd={cwd} repos={sorted} repo={repo} onPick={pickRepo} />} />}
+                  toolbarStart={repos.length > 1 && !repoTabs && <RepoSelect cwd={cwd} repos={[...list.shown, ...list.hidden]} repo={repo} onPick={pickRepo} />} />}
           </div>
           {pr != null && !diff && (
             <PrView key={`${repo}:${pr}`} root={repo} remote="origin" number={pr} theme={theme} onConfirm={setConfirm}
