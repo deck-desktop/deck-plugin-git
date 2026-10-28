@@ -7,7 +7,7 @@ import { listen } from "../shim/event.js";
 import { repoLabel, useRowDrag } from "../shim/ui.js";
 import { useSettings } from "../shim/settings.js";
 import { GIT_CHANGED } from "./WorkPanel";
-import { baseName } from "./util";
+import { tabLabels } from "./tablabels";
 import { inOrder, moved } from "./repoorder";
 
 /** Declared, so Deck draws it on this plugin's page of Settings and writes it to `settings`. */
@@ -111,7 +111,7 @@ export function RepoSelect({ cwd, repos, repo, onPick }: { cwd: string; repos: s
 const DRAG_ID = "data-drag-id"; // dragrow's ROW_ATTR: the shim forwards functions, not constants
 const CHANGED = "#facc15";
 
-/** The tabs, each named by its folder (its path under the workspace when two share a name). */
+/** The tabs, each named by its folder, with the parent folders in front that tell two of a name apart. */
 export function RepoTabs({ cwd, repos, repo, onPick, onReorder }: {
   cwd: string; repos: string[]; repo: string; onPick: (r: string) => void; onReorder: (from: string, to: string) => void;
 }) {
@@ -125,14 +125,14 @@ export function RepoTabs({ cwd, repos, repo, onPick, onReorder }: {
   useEffect(() => {
     strip.current?.querySelector(`[${DRAG_ID}="${CSS.escape(repo)}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [repo]);
-  const names = repos.map((r) => baseName(r));
+  const labels = tabLabels(repos);
   return (
     // h-10 leaves room under the h-7 tabs, inside the row (which clips, as it scrolls), for the line.
     <div ref={strip} className="no-drag flex h-10 shrink-0 items-center gap-1 overflow-x-auto border-b border-subtle px-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       onWheel={(e) => { if (e.deltaY !== 0) e.currentTarget.scrollLeft += e.deltaY; }}>
       {repos.map((r, i) => {
         const on = r === repo;
-        const name = names.indexOf(names[i]) !== names.lastIndexOf(names[i]) ? repoLabel(cwd, r) : names[i];
+        const { parent, name } = labels[i];
         return (
           <button key={r} {...{ [DRAG_ID]: r }} title={r} onMouseDown={drag.startDrag(r)}
             // Click, not mousedown: a state change during mousedown aborts the drag (dragrow).
@@ -141,7 +141,11 @@ export function RepoTabs({ cwd, repos, repo, onPick, onReorder }: {
               + (on ? "font-medium text-text-primary" : "bg-[color-mix(in_srgb,var(--bg-elev)_50%,transparent)] text-text-muted hover:bg-[var(--bg-hover)] hover:text-text-primary")
               + (drag.dragId === r ? " ring-1 ring-[var(--accent)]" : "")}
             style={{ width, ...(on ? { background: "var(--bg-elev)", boxShadow: "inset 0 0 0 1px var(--border-strong)" } : {}) }}>
-            <span className="min-w-0 flex-1 truncate text-left">{name}</span>
+            {/* The parent folders give way first, so the repo's own name stays readable. */}
+            <span className="flex min-w-0 flex-1 text-left">
+              {parent && <><span className="min-w-0 truncate opacity-60">{parent}</span><span className="shrink-0 opacity-60">/</span></>}
+              <span className="max-w-full shrink-0 truncate">{name}</span>
+            </span>
             {dirty.has(r) && <span title="Uncommitted changes" className="size-1.5 shrink-0 rounded-full" style={{ background: CHANGED }} />}
             {on && <span aria-hidden className="pointer-events-none absolute inset-x-2 -bottom-[5px] h-0.5 rounded-full" style={{ background: "var(--accent)" }} />}
           </button>
