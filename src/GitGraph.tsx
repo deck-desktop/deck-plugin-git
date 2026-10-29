@@ -860,8 +860,8 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
   };
 
   /**
-   * One pill in the ref column: a branch (local and remote together), a tag, or HEAD. Clicking it
-   * opens what can be done with it; the cloud opens the remote copy's actions instead.
+   * One pill in the ref column: a branch (local and remote together), a tag, or HEAD. Right-click
+   * opens what can be done with it (on the cloud, the remote copy's); a click selects the row.
    *
    * `ghost` is the faded label on a commit with no ref of its own, naming the branch it is on.
    */
@@ -885,7 +885,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
           dragFrom.current = { g, x: e.clientX, y: e.clientY };
           setDragWin(e.currentTarget.ownerDocument.defaultView ?? window);
         }}
-        onClick={openRef(primary)} onContextMenu={openRef(primary)}
+        onClick={(e) => { if (suppressClick.current) e.stopPropagation(); }} onContextMenu={openRef(primary)}
         title={ghost ? `On ${g.name}` : [g.local?.label, ...g.remotes.map((r) => r.label), g.tag && `tag ${g.tag.label}`].filter(Boolean).join(" · ")}
         className={"flex h-[18px] min-w-0 shrink select-none items-center gap-1 rounded px-1.5 text-[11px] font-medium text-text-primary "
           + (ghost ? "opacity-50" : "cursor-pointer hover:brightness-125")}
@@ -896,7 +896,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
         {g.local && <Laptop size={11} className="shrink-0 opacity-70" />}
         {g.remotes.length > 0 && (
           <Cloud size={11} className="shrink-0 opacity-70 hover:opacity-100"
-            onClick={openRef(g.remotes[0])} onContextMenu={openRef(g.remotes[0])} />
+            onContextMenu={openRef(g.remotes[0])} />
         )}
         {pr && (
           <span title={`${prHost?.sign ?? "#"}${pr.number} ${pr.title}${pr.isDraft ? " (draft)" : ""} — ${pr.state === "none" ? "open" : pr.state}. Click to open.`}
