@@ -14,6 +14,7 @@ import {
   gitCheckoutDetach as deckCheckoutDetach, gitDiscard as deckDiscard,
 } from "../shim/bridge.js";
 import { repoName, short, told } from "./notice";
+import { primaryRemote } from "./prs";
 
 const lines = (s: string) => s.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 /** The branch checked out, "" when HEAD is detached. */
@@ -71,9 +72,17 @@ export const gitUndoCommit = (dir: string) =>
 
 // ---- remotes ---------------------------------------------------------------------------------
 
+/** Push the branch checked out. One never pushed gets an upstream set on the primary remote
+ *  instead of git's refusal, which is what the push was for. */
 export async function gitPush(dir: string): Promise<string> {
   const branch = await branchOf(dir);
-  return told(() => gitRun(dir, ["push"]), () => said(dir, branch ? `Pushed ${branch}` : "Pushed"), said(dir, branch ? `Pushing ${branch}…` : "Pushing…"));
+  return told(async () => {
+    try { return await gitRun(dir, ["push"]); }
+    catch (e) {
+      if (!branch || !/no upstream/i.test(String(e))) throw e;
+      return gitRun(dir, ["push", "-u", primaryRemote(await gitRemotes(dir)), branch]);
+    }
+  }, () => said(dir, branch ? `Pushed ${branch}` : "Pushed"), said(dir, branch ? `Pushing ${branch}…` : "Pushing…"));
 }
 /** A pull that brought nothing says so, rather than claiming to have pulled. */
 async function pull(dir: string, args: string[]): Promise<string> {

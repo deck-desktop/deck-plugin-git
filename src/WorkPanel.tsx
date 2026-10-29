@@ -9,15 +9,15 @@ import { Plus, Minus, Undo2, X, FileSymlink, History, Sparkles, Loader2, Chevron
 import {
   gitStatus, gitAiCommitMsg, gitFileBytes, fsReadBytes, fsReveal, type GitStatusRow,
 } from "../shim/bridge.js";
-import { gitDiscard, gitStage, gitUnstage, gitCommit, gitCommitAmend, gitUndoCommit, gitHead, gitPush, gitPushBranch, gitPullRebase, gitRemotes } from "./git";
+import { gitDiscard, gitStage, gitUnstage, gitCommit, gitCommitAmend, gitUndoCommit, gitHead, gitPush, gitPullRebase } from "./git";
 import { FileIcon } from "../shim/ui.js";
+import { useMessageVersion, useWriting, writeMessage } from "./aimessage";
 import type { ConfirmState } from "../shim/ui.js";
 import { ContextMenu, type MenuEntry } from "../shim/ui.js";
 import type { IconTheme } from "../shim/ui.js";
 import { useEditorSettings } from "../shim/ui.js";
 import { statusColor, buildChangeTree, collectFiles, type TreeNodeOf } from "../shim/ui.js";
 import { baseName, iconBtn, dangerBtn, toolBtn, field, heading, countChip, accentFill } from "./util";
-import { primaryRemote } from "./prs";
 import { decodeText } from "../shim/ui.js";
 
 /** Fired on window with the repo root as detail after this panel changes the repo; the graph reloads. */
@@ -90,7 +90,11 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
   const [summary, setSummary] = useState(kept?.summary ?? "");
   const [desc, setDesc] = useState(kept?.desc ?? "");
   const [amend, setAmend] = useState(false);
-  const [busy, setBusy] = useState<"" | "commit" | "ai">("");
+  const [busy, setBusy] = useState<"" | "commit">("");
+  // The AI message is written outside the panel (aimessage.ts), so it survives a tab switch: it
+  // lands in the draft, and the draft is read again here when it does.
+  const writing = useWriting(root);
+  const landed = useMessageVersion();
   const [commitMenu, setCommitMenu] = useState<{ x: number; y: number } | null>(null);
   /** A file's or folder's right-click menu. */
   const [rowMenu, setRowMenu] = useState<{ x: number; y: number; items: MenuEntry[] } | null>(null);
@@ -99,6 +103,7 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
   const [folded, setFolded] = useState<Set<string>>(kept?.folded ?? new Set());
   const fold = (key: string) => setFolded((f) => { const n = new Set(f); if (!n.delete(key)) n.add(key); return n; });
   useEffect(() => { drafts.set(root, { summary, desc, folded }); }, [root, summary, desc, folded]);
+  useEffect(() => { const d = drafts.get(root); if (d) { setSummary(d.summary); setDesc(d.desc); } }, [landed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const load = () => void gitStatus(root).then(setRows).catch(() => setRows([]));
   useEffect(load, [root, polled]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -168,16 +173,7 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
 
   const message = summary.trim() + (desc.trim() ? "\n\n" + desc.trim() : "");
   // git_commit stages everything when nothing is staged, as Source Control's Commit does.
-  const canCommit = !busy && (amend || (summary.trim() !== "" && rows.length > 0));
-  /** Push the current branch; one never pushed gets an upstream set instead of a refusal. */
-  const pushUp = async () => {
-    try { await gitPush(root); }
-    catch (e) {
-      const h = await gitHead(root).catch(() => null);
-      if (!h?.branch || !/no upstream/i.test(String(e))) throw e;
-      await gitPushBranch(root, primaryRemote(await gitRemotes(root).catch(() => [])), h.branch);
-    }
-  };
+  const canCommit = !busy && !writing && (amend || (summary.trim() !== "" && rows.length > 0));
   // `then`: Source Control's Commit & Push and Commit & Sync (pull --rebase, then push).
   const commit = async (then?: "push" | "sync") => {
     if (!canCommit) return;
@@ -193,8 +189,11 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
       if (at) undoStore.set(root, { label: "commit", run: () => gitUndoCommit(root), at: at.hash });
       else undoStore.delete(root);
       setSummary(""); setDesc(""); setAmend(false);
+      // The draft too: the panel may be gone by now (another tab), and would bring the message back.
+      const d = drafts.get(root);
+      if (d) drafts.set(root, { ...d, summary: "", desc: "" });
       if (then) {
-        await run(async () => { if (then === "sync") await gitPullRebase(root); await pushUp(); },
+        await run(async () => { if (then === "sync") await gitPullRebase(root); await gitPush(root); },
           then === "sync" ? "Sync failed." : "Push failed.");
         // Pushed: taking the commit back now would rewrite what others may already have.
         undoStore.delete(root);
@@ -202,14 +201,12 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
     }
     setBusy("");
   };
-  const generate = async () => {
-    setBusy("ai");
-    try {
-      const m = await gitAiCommitMsg(root, settings.aiCommitCommand, settings.aiCommitArgs, settings.aiCommitModel);
-      if (m) { const [first, ...rest] = m.split("\n"); setSummary(first); setDesc(rest.join("\n").trim()); }
-    } catch (e) { fail("Generate message failed", e); }
-    setBusy("");
-  };
+  const generate = () => writeMessage(root,
+    () => gitAiCommitMsg(root, settings.aiCommitCommand, settings.aiCommitArgs, settings.aiCommitModel),
+    (m) => {
+      const [first, ...rest] = m.split("\n");
+      drafts.set(root, { ...(drafts.get(root) ?? { folded: new Set<string>() }), summary: first, desc: rest.join("\n").trim() });
+    });
 
   // Render functions, not components declared in here: a component defined inside another is a
   // new type on every render, so React rebuilt the whole list each time — and a click whose
@@ -330,9 +327,9 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
             style={{ height: "auto", fieldSizing: "content" } as React.CSSProperties}
             className={field + " block resize-none px-2.5 py-1.5 pr-8 leading-5"} />
           {/* Inside the box, at its end, as a field's own controls are. */}
-          <button onClick={() => void generate()} disabled={!!busy} title="Generate a message with AI"
+          <button onClick={generate} disabled={!!busy || writing} title="Generate a message with AI"
             className="absolute right-1 top-1 grid size-6 place-items-center rounded-md text-text-muted transition-colors hover:bg-white/5 hover:text-[var(--accent)] disabled:opacity-40">
-            {busy === "ai" ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+            {writing ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
           </button>
         </div>
         <textarea value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Description" rows={7}

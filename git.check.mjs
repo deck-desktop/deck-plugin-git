@@ -41,6 +41,7 @@ const out = await build({ entryPoints: [entry], bundle: true, write: false, form
 const g = await import("data:text/javascript;base64," + Buffer.from(out.outputFiles[0].text).toString("base64"));
 
 const dir = mkdtempSync(join(tmpdir(), "deck-git-"));
+const bare = mkdtempSync(join(tmpdir(), "deck-git-remote-"));
 const sh = (...a) => execFileSync("git", ["-C", dir, ...a], { encoding: "utf8" }).trim();
 const write = (f, t) => writeFileSync(join(dir, f), t);
 try {
@@ -150,8 +151,24 @@ try {
   assert.equal(sh("show", ":idx.txt"), "a\nB\nc");
   assert.equal(sh("diff", "--unified=0", "--", "idx.txt").split("\n").filter((l) => /^[+-][^+-]/.test(l)).join(","), "+d");
   assert.match(sh("ls-files", "-s", "--", "idx.txt"), /^100644 /);
+
+  // Push with nowhere to push: a card while it runs, then an error card in its place, kept.
+  notes();
+  await assert.rejects(g.gitPush(dir));
+  const failed = globalThis.__notes.splice(0);
+  assert.deepEqual(failed.map((n) => [n.kind, n.title]), [["activity", "Pushing main…"], ["error", "Pushing main failed"]]);
+  assert.equal(failed[0].key, failed[1].key, "the error card replaces the running one");
+  // A branch never pushed: gitPush sets its upstream on the remote, and that is one push, said once.
+  sh("init", "-q", "--bare", bare);
+  sh("remote", "add", "origin", bare);
+  await g.gitPush(dir);
+  assert.equal(sh("rev-parse", "--abbrev-ref", "main@{upstream}"), "origin/main");
+  assert.deepEqual(notes().map((n) => n.split(" | ")[0]), ["Pushing main…", "Pushed main"]);
+  await g.gitPull(dir);
+  assert.deepEqual(notes().map((n) => n.split(" | ")[0]), ["Pulling main…", "main is up to date"]);
 } finally {
   rmSync(dir, { recursive: true, force: true });
+  rmSync(bare, { recursive: true, force: true });
 }
 
 console.log("git.check.mjs: ok");
