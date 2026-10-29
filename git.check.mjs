@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { build } from "esbuild";
 
 globalThis.__gitRun = async (dir, args) => {
@@ -19,10 +19,23 @@ globalThis.__gitRun = async (dir, args) => {
 };
 globalThis.__fsWrite = async (path, text) => writeFileSync(path, text);
 globalThis.__fsList = async (dir) => readdirSync(dir, { withFileTypes: true }).map((d) => ({ name: d.name, path: join(dir, d.name), dir: d.isDirectory(), mtimeMs: 0 }));
+// Deck's own git commands as plain git, and the notifications kept, to be looked at.
+globalThis.__notes = [];
 const shim = { name: "shim", setup(b) {
-  b.onResolve({ filter: /shim\/bridge\.js$/ }, () => ({ path: "shim", namespace: "shim" }));
-  b.onLoad({ filter: /.*/, namespace: "shim" }, () => ({ contents: "export const gitRun = (...a) => globalThis.__gitRun(...a); export const fsList = (...a) => globalThis.__fsList(...a); export const fsWrite = (...a) => globalThis.__fsWrite(...a);" }));
+  b.onResolve({ filter: /shim\/bridge\.js$/ }, () => ({ path: "bridge", namespace: "shim" }));
+  b.onResolve({ filter: /shim\/ui\.js$/ }, () => ({ path: "ui", namespace: "shim" }));
+  b.onLoad({ filter: /^bridge$/, namespace: "shim" }, () => ({ contents: [
+    "const run = (...a) => globalThis.__gitRun(...a);",
+    "export const gitRun = run; export const fsList = (...a) => globalThis.__fsList(...a); export const fsWrite = (...a) => globalThis.__fsWrite(...a);",
+    "export const gitCheckout = (d, n) => run(d, ['checkout', n]); export const gitCheckoutNew = (d, n) => run(d, ['checkout', '-b', n]);",
+    "export const gitCheckoutTrack = (d, r) => run(d, ['checkout', '--track', r]); export const gitCheckoutDetach = (d, r) => run(d, ['checkout', '--detach', r]);",
+    "export const gitDiscard = (d, p) => run(d, ['checkout', '--', ...p]);",
+  ].join("\n") }));
+  b.onLoad({ filter: /^ui$/, namespace: "shim" }, () => ({ contents:
+    "export const notify = (n) => globalThis.__notes.push(n); export const dismissNotification = (s, k) => globalThis.__notes.push({ dismissed: k });" }));
 } };
+/** The notifications since the last call, as "title | body". */
+const notes = () => globalThis.__notes.splice(0).map((n) => (n.dismissed ? `dismissed` : `${n.title} | ${n.body}`));
 const entry = new URL("./src/git.ts", import.meta.url).pathname.replace(/^\/(\w:)/, "$1");
 const out = await build({ entryPoints: [entry], bundle: true, write: false, format: "esm", platform: "node", plugins: [shim] });
 const g = await import("data:text/javascript;base64," + Buffer.from(out.outputFiles[0].text).toString("base64"));
@@ -39,6 +52,9 @@ try {
   await assert.rejects(g.gitCommit(dir, "  "), /empty commit message/);
   await g.gitCommit(dir, "first");
   assert.equal(sh("log", "--format=%s"), "first");
+  // Every action says what it did, on which branch, in which repository.
+  const repo = basename(dir);
+  assert.deepEqual(notes(), [`Committed to main | ${repo}: first`]);
   // Something staged: only that is committed.
   write("a.txt", "two\n"); write("b.txt", "b\n");
   await g.gitStage(dir, ["b.txt"]);
@@ -51,6 +67,8 @@ try {
   assert.equal(sh("log", "-1", "--format=%s"), "add b, amended");
   await g.gitCommitAmend(dir, "");
   assert.equal(sh("log", "-1", "--format=%s"), "add b, amended", "a blank amend keeps the message");
+  // Staging is not news; the commit and the two amends are.
+  assert.deepEqual(notes(), [`Committed to main | ${repo}: add b`, `Amended the last commit | ${repo}`, `Amended the last commit | ${repo}`]);
 
   // HEAD, branches, tags.
   const head = await g.gitHead(dir);
@@ -62,6 +80,7 @@ try {
   await g.gitTag(dir, "v2", "HEAD", "annotated");
   assert.equal(sh("cat-file", "-t", "v2"), "tag"); assert.equal(sh("cat-file", "-t", "v1"), "commit");
   await g.gitTagDelete(dir, "v1");
+  assert.deepEqual(notes().map((n) => n.split(" | ")[0]), ["Created feature", "Renamed feature to feat", "Tagged HEAD as v1", "Tagged HEAD as v2", "Deleted tag v1"]);
   assert.deepEqual(await g.gitRemotes(dir), []);
   sh("checkout", "-q", "main");
   await g.gitBranchDelete(dir, "feat", true);

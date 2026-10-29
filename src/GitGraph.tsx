@@ -4,9 +4,9 @@ import {
   ArrowDownToLine, ArrowUpFromLine, GitBranchPlus, Archive, ArchiveRestore, LogIn, Pencil, Search, X, Laptop, Cloud, GitPullRequest, History,
 } from "lucide-react";
 import {
-  gitLogGraph, gitCheckoutDetach, gitRefs, openExternal, gitStatus, gitFileBytes, fsReadBytes, gitCheckout, gitCheckoutTrack, gitCheckoutNew, type GraphCommit, type CommitFile, type GitRef,
+  gitLogGraph, gitRefs, openExternal, gitStatus, gitFileBytes, fsReadBytes, type GraphCommit, type CommitFile, type GitRef,
 } from "../shim/bridge.js";
-import { gitBranchAt, gitRevert, gitCherryPick, gitResetTo, gitTag, gitMergeAs, gitContinueOp, gitBranchDelete, gitBranchDeleteRemote, gitTagDelete, gitTagPush, gitTagDeleteRemote, gitPushBranch, gitRemotes, gitPendingOp, gitAbortOp, gitFetch, gitBranchRename, gitRebase, gitPull, gitPullRebase, gitPush, gitStash, gitStashPop, gitHead, gitStashApply, gitStashDrop, gitStashClear } from "./git";
+import { gitCheckout, gitCheckoutTrack, gitCheckoutNew, gitCheckoutDetach, gitBranchAt, gitRevert, gitCherryPick, gitResetTo, gitTag, gitMergeAs, gitContinueOp, gitBranchDelete, gitBranchDeleteRemote, gitTagDelete, gitTagPush, gitTagDeleteRemote, gitPushBranch, gitRemotes, gitPendingOp, gitAbortOp, gitFetch, gitBranchRename, gitRebase, gitPull, gitPullRebase, gitPush, gitStash, gitStashPop, gitHead, gitStashApply, gitStashDrop, gitStashClear } from "./git";
 import { ContextMenu, type MenuEntry } from "../shim/ui.js";
 import { NamePrompt, type NamePromptState } from "../shim/ui.js";
 import { useResize } from "../shim/ui.js";

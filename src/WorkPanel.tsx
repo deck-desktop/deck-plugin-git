@@ -7,9 +7,9 @@
 import { Fragment, useEffect, useState } from "react";
 import { Plus, Minus, Undo2, X, FileSymlink, History, Sparkles, Loader2, ChevronRight, ChevronDown, List, ListTree, ArrowUpFromLine, RefreshCw, Check, GitCompare } from "lucide-react";
 import {
-  gitStatus, gitDiscard, gitAiCommitMsg, gitFileBytes, fsReadBytes, fsReveal, type GitStatusRow,
+  gitStatus, gitAiCommitMsg, gitFileBytes, fsReadBytes, fsReveal, type GitStatusRow,
 } from "../shim/bridge.js";
-import { gitStage, gitUnstage, gitCommit, gitCommitAmend, gitUndoCommit, gitHead, gitPush, gitPushBranch, gitPullRebase, gitRemotes } from "./git";
+import { gitDiscard, gitStage, gitUnstage, gitCommit, gitCommitAmend, gitUndoCommit, gitHead, gitPush, gitPushBranch, gitPullRebase, gitRemotes } from "./git";
 import { FileIcon } from "../shim/ui.js";
 import type { ConfirmState } from "../shim/ui.js";
 import { ContextMenu, type MenuEntry } from "../shim/ui.js";
