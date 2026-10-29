@@ -4,9 +4,9 @@ import {
   ArrowDownToLine, ArrowUpFromLine, GitBranchPlus, Archive, ArchiveRestore, LogIn, Pencil, Search, X, Laptop, Cloud, GitPullRequest, History,
 } from "lucide-react";
 import {
-  gitLogGraph, gitCheckoutDetach, gitRefs, openExternal, gitStatus, gitFileBytes, fsReadBytes, gitCheckout, gitCheckoutTrack, gitCheckoutNew, type GraphCommit, type CommitFile, type GitRef,
+  gitLogGraph, gitRefs, openExternal, gitStatus, gitFileBytes, fsReadBytes, type GraphCommit, type CommitFile, type GitRef,
 } from "../shim/bridge.js";
-import { gitBranchAt, gitRevert, gitCherryPick, gitResetTo, gitTag, gitMergeAs, gitContinueOp, gitBranchDelete, gitBranchDeleteRemote, gitTagDelete, gitTagPush, gitTagDeleteRemote, gitPushBranch, gitRemotes, gitPendingOp, gitAbortOp, gitFetch, gitBranchRename, gitRebase, gitPull, gitPullRebase, gitPush, gitStash, gitStashPop, gitHead, gitStashApply, gitStashDrop, gitStashClear } from "./git";
+import { gitCheckout, gitCheckoutTrack, gitCheckoutNew, gitCheckoutDetach, gitBranchAt, gitRevert, gitCherryPick, gitResetTo, gitTag, gitMergeAs, gitContinueOp, gitBranchDelete, gitBranchDeleteRemote, gitTagDelete, gitTagPush, gitTagDeleteRemote, gitPushBranch, gitRemotes, gitPendingOp, gitAbortOp, gitFetch, gitBranchRename, gitRebase, gitPull, gitPullRebase, gitPush, gitStash, gitStashPop, gitHead, gitStashApply, gitStashDrop, gitStashClear } from "./git";
 import { ContextMenu, type MenuEntry } from "../shim/ui.js";
 import { NamePrompt, type NamePromptState } from "../shim/ui.js";
 import { useResize } from "../shim/ui.js";
@@ -1035,16 +1035,8 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
     await act(fn, failed, undo);
     setNet("");
   };
-  // A branch never pushed has no upstream, and a plain push refuses; push it and set one instead,
-  // which is what the push would have been for.
-  const push = () => network("push", async () => {
-    try { await gitPush(root); }
-    catch (e) {
-      const branch = currentBranch();
-      if (!branch || !/no upstream/i.test(String(e))) throw e;
-      await gitPushBranch(root, primaryRemote(remotes), branch);
-    }
-  }, "Push failed.");
+  // A branch never pushed gets an upstream set by gitPush.
+  const push = () => network("push", () => gitPush(root), "Push failed.");
   const pullItems = (): MenuEntry[] => [
     { label: "Pull", subLabel: "Fast-forward only", icon: ArrowDownToLine, onClick: () => void network("pull", () => gitPull(root), "Pull failed.", rewind("pull")) },
     { label: "Pull with rebase", subLabel: "Replays your local commits on top", onClick: () => void network("pull", () => gitPullRebase(root), "Pull failed.", rewind("pull")) },

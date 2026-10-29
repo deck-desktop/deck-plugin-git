@@ -6,9 +6,21 @@
 // ones whose parsing or binary output belongs in Rust (gitLogGraph, gitCommitFiles, gitFileBytes),
 // gitDiscard (it deletes files), the AI commit message, and the gh/glab calls, whose allowlists
 // are their security boundary.
-import { fsList, fsWrite, gitRun } from "../shim/bridge.js";
+//
+// Each action that changes the repository says so in a notification once it is done (notice.ts);
+// staging, a read and the refresh button's fetch do not, being too frequent to be news.
+import {
+  fsList, fsWrite, gitRun, gitCheckout as deckCheckout, gitCheckoutNew as deckCheckoutNew, gitCheckoutTrack as deckCheckoutTrack,
+  gitCheckoutDetach as deckCheckoutDetach, gitDiscard as deckDiscard,
+} from "../shim/bridge.js";
+import { repoName, short, told } from "./notice";
+import { primaryRemote } from "./prs";
 
 const lines = (s: string) => s.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+/** The branch checked out, "" when HEAD is detached. */
+const branchOf = (dir: string) => gitRun(dir, ["symbolic-ref", "--short", "-q", "HEAD"]).then((s) => s.trim(), () => "");
+/** A done notification about `dir`: what happened, the repository it happened in. */
+const said = (dir: string, title: string, more = "") => ({ title, body: more ? `${repoName(dir)}: ${more}` : repoName(dir) });
 /** True when the command exits 0. A non-zero exit is an answer here, not a failure. */
 const succeeds = (dir: string, args: string[]) => gitRun(dir, args).then(() => true, () => false);
 
@@ -48,21 +60,43 @@ export async function gitCommit(dir: string, message: string): Promise<string> {
   if (!message.trim()) throw "empty commit message";
   // `diff --cached --quiet` exits 0 when nothing is staged.
   if (await succeeds(dir, ["diff", "--cached", "--quiet"])) await gitRun(dir, ["add", "-A"]);
-  return gitRun(dir, ["commit", "-m", message]);
+  const branch = await branchOf(dir);
+  return told(() => gitRun(dir, ["commit", "-m", message]), () => said(dir, branch ? `Committed to ${branch}` : "Committed", message.trim().split(/\r?\n/)[0]));
 }
 /** Amend the last commit: its message as is when `message` is blank. */
 export const gitCommitAmend = (dir: string, message: string) =>
-  gitRun(dir, message.trim() ? ["commit", "--amend", "-m", message] : ["commit", "--amend", "--no-edit"]);
+  told(() => gitRun(dir, message.trim() ? ["commit", "--amend", "-m", message] : ["commit", "--amend", "--no-edit"]), () => said(dir, "Amended the last commit"));
 /** Undo the last commit, keeping its changes staged. */
-export const gitUndoCommit = (dir: string) => gitRun(dir, ["reset", "--soft", "HEAD~1"]);
+export const gitUndoCommit = (dir: string) =>
+  told(() => gitRun(dir, ["reset", "--soft", "HEAD~1"]), () => said(dir, "Undid the last commit", "its changes are staged"));
 
 // ---- remotes ---------------------------------------------------------------------------------
 
-export const gitPush = (dir: string) => gitRun(dir, ["push"]);
-export const gitPull = (dir: string) => gitRun(dir, ["pull", "--ff-only"]);
-export const gitPullRebase = (dir: string) => gitRun(dir, ["pull", "--rebase"]);
+/** Push the branch checked out. One never pushed gets an upstream set on the primary remote
+ *  instead of git's refusal, which is what the push was for. */
+export async function gitPush(dir: string): Promise<string> {
+  const branch = await branchOf(dir);
+  return told(async () => {
+    try { return await gitRun(dir, ["push"]); }
+    catch (e) {
+      if (!branch || !/no upstream/i.test(String(e))) throw e;
+      return gitRun(dir, ["push", "-u", primaryRemote(await gitRemotes(dir)), branch]);
+    }
+  }, () => said(dir, branch ? `Pushed ${branch}` : "Pushed"), said(dir, branch ? `Pushing ${branch}…` : "Pushing…"));
+}
+/** A pull that brought nothing says so, rather than claiming to have pulled. */
+async function pull(dir: string, args: string[]): Promise<string> {
+  const branch = await branchOf(dir);
+  return told(() => gitRun(dir, args),
+    (out) => /up to date/i.test(out) ? said(dir, `${branch || "The branch"} is up to date`) : said(dir, branch ? `Pulled ${branch}` : "Pulled"),
+    said(dir, branch ? `Pulling ${branch}…` : "Pulling…"));
+}
+export const gitPull = (dir: string) => pull(dir, ["pull", "--ff-only"]);
+export const gitPullRebase = (dir: string) => pull(dir, ["pull", "--rebase"]);
+/** Quiet: the refresh button's, run on every press. */
 export const gitFetch = (dir: string) => gitRun(dir, ["fetch", "--prune"]);
-export const gitPushBranch = (dir: string, remote: string, name: string) => gitRun(dir, ["push", "-u", remote, name]);
+export const gitPushBranch = (dir: string, remote: string, name: string) =>
+  told(() => gitRun(dir, ["push", "-u", remote, name]), () => said(dir, `Pushed ${name} to ${remote}`), said(dir, `Pushing ${name}…`));
 export const gitRemotes = (dir: string) => gitRun(dir, ["remote"]).then(lines, () => [] as string[]);
 export const gitRemoteUrl = (dir: string, name: string) => gitRun(dir, ["remote", "get-url", name]).then((s) => s.trim());
 /** Fetch pull request N's head from `remote`, so its commits can be diffed here. `gitlab`: a merge request's. */
@@ -77,23 +111,31 @@ export async function gitHead(dir: string): Promise<{ hash: string; branch: stri
   const branch = await gitRun(dir, ["symbolic-ref", "--short", "-q", "HEAD"]).then((s) => s.trim(), () => "");
   return { hash, branch };
 }
-export const gitBranchAt = (dir: string, name: string, rev: string) => gitRun(dir, ["checkout", "-b", name, rev]);
+export const gitBranchAt = (dir: string, name: string, rev: string) =>
+  told(() => gitRun(dir, ["checkout", "-b", name, rev]), () => said(dir, `Created ${name}`, `at ${short(rev)}, checked out`));
 /** Revert a commit; a merge is reverted against its first parent. */
 export async function gitRevert(dir: string, rev: string): Promise<string> {
   const parents = (await gitRun(dir, ["rev-list", "--parents", "-n", "1", rev])).trim().split(/\s+/);
-  return gitRun(dir, parents.length > 2 ? ["revert", "--no-edit", "-m", "1", rev] : ["revert", "--no-edit", rev]);
+  return told(() => gitRun(dir, parents.length > 2 ? ["revert", "--no-edit", "-m", "1", rev] : ["revert", "--no-edit", rev]),
+    () => said(dir, `Reverted ${short(rev)}`));
 }
-export const gitCherryPick = (dir: string, rev: string) => gitRun(dir, ["cherry-pick", rev]);
-export const gitResetTo = (dir: string, rev: string, mode: "soft" | "mixed" | "hard" | "keep") =>
-  gitRun(dir, ["reset", `--${mode}`, rev]);
-export const gitRebase = (dir: string, onto: string) => gitRun(dir, ["rebase", onto]);
+export const gitCherryPick = (dir: string, rev: string) =>
+  told(() => gitRun(dir, ["cherry-pick", rev]), () => said(dir, `Cherry-picked ${short(rev)}`));
+export async function gitResetTo(dir: string, rev: string, mode: "soft" | "mixed" | "hard" | "keep"): Promise<string> {
+  const branch = await branchOf(dir);
+  return told(() => gitRun(dir, ["reset", `--${mode}`, rev]), () => said(dir, `Reset ${branch || "HEAD"} to ${short(rev)}`, `${mode} reset`));
+}
+export const gitRebase = (dir: string, onto: string) =>
+  told(() => gitRun(dir, ["rebase", onto]), () => said(dir, `Rebased onto ${short(onto)}`));
 /** Merge `rev` into the current branch: a merge commit always, fast-forward when possible, or squashed into one commit. */
 export async function gitMergeAs(dir: string, rev: string, style: "no-ff" | "ff" | "squash"): Promise<string> {
+  const into = await branchOf(dir);
+  const done = () => said(dir, `${style === "squash" ? "Squashed" : "Merged"} ${short(rev)}${into ? ` into ${into}` : ""}`);
   if (style === "squash") {
     await gitRun(dir, ["merge", "--squash", rev]);
-    return gitRun(dir, ["commit", "--no-edit"]);
+    return told(() => gitRun(dir, ["commit", "--no-edit"]), done);
   }
-  return gitRun(dir, style === "ff" ? ["merge", "--no-edit", rev] : ["merge", "--no-ff", "--no-edit", rev]);
+  return told(() => gitRun(dir, style === "ff" ? ["merge", "--no-edit", rev] : ["merge", "--no-ff", "--no-edit", rev]), done);
 }
 /** Subjects of the commits on `head` that `base` lacks, oldest first. */
 export const gitRangeSubjects = (dir: string, base: string, head: string) =>
@@ -119,25 +161,31 @@ export async function gitPendingOp(dir: string): Promise<string> {
 }
 /** Finish what gitPendingOp reported, once its conflicts are resolved and staged. */
 export const gitContinueOp = (dir: string, op: string) =>
-  gitRun(dir, ["rebase", "revert", "cherry-pick"].includes(op)
+  told(() => gitRun(dir, ["rebase", "revert", "cherry-pick"].includes(op)
     // No editor: git would otherwise wait on one for the message, with no window to show it in.
     ? ["-c", "core.editor=true", op, "--continue"]
-    : ["commit", "--no-edit"]);
+    : ["commit", "--no-edit"]), () => said(dir, `Finished the ${op}`));
 /** Abandon it, restoring the state before it started. */
 export const gitAbortOp = (dir: string, op: string) =>
-  gitRun(dir, [["revert", "cherry-pick", "rebase"].includes(op) ? op : "merge", "--abort"]);
+  told(() => gitRun(dir, [["revert", "cherry-pick", "rebase"].includes(op) ? op : "merge", "--abort"]), () => said(dir, `Abandoned the ${op}`));
 
 // ---- branches and tags -----------------------------------------------------------------------
 
-export const gitBranchRename = (dir: string, from: string, to: string) => gitRun(dir, ["branch", "-m", from, to]);
-export const gitBranchDelete = (dir: string, name: string, force = false) => gitRun(dir, ["branch", force ? "-D" : "-d", name]);
-export const gitBranchDeleteRemote = (dir: string, remote: string, name: string) => gitRun(dir, ["push", remote, "--delete", name]);
+export const gitBranchRename = (dir: string, from: string, to: string) =>
+  told(() => gitRun(dir, ["branch", "-m", from, to]), () => said(dir, `Renamed ${from} to ${to}`));
+export const gitBranchDelete = (dir: string, name: string, force = false) =>
+  told(() => gitRun(dir, ["branch", force ? "-D" : "-d", name]), () => said(dir, `Deleted ${name}`));
+export const gitBranchDeleteRemote = (dir: string, remote: string, name: string) =>
+  told(() => gitRun(dir, ["push", remote, "--delete", name]), () => said(dir, `Deleted ${name} from ${remote}`), said(dir, `Deleting ${name} from ${remote}…`));
 /** A lightweight tag, or an annotated one when there is a message. */
 export const gitTag = (dir: string, name: string, rev: string, message = "") =>
-  gitRun(dir, message.trim() ? ["tag", "-a", name, rev, "-m", message] : ["tag", name, rev]);
-export const gitTagDelete = (dir: string, name: string) => gitRun(dir, ["tag", "-d", name]);
-export const gitTagPush = (dir: string, remote: string, name: string) => gitRun(dir, ["push", remote, name]);
-export const gitTagDeleteRemote = (dir: string, remote: string, name: string) => gitRun(dir, ["push", remote, "--delete", `refs/tags/${name}`]);
+  told(() => gitRun(dir, message.trim() ? ["tag", "-a", name, rev, "-m", message] : ["tag", name, rev]), () => said(dir, `Tagged ${short(rev)} as ${name}`));
+export const gitTagDelete = (dir: string, name: string) =>
+  told(() => gitRun(dir, ["tag", "-d", name]), () => said(dir, `Deleted tag ${name}`));
+export const gitTagPush = (dir: string, remote: string, name: string) =>
+  told(() => gitRun(dir, ["push", remote, name]), () => said(dir, `Pushed tag ${name} to ${remote}`), said(dir, `Pushing tag ${name}…`));
+export const gitTagDeleteRemote = (dir: string, remote: string, name: string) =>
+  told(() => gitRun(dir, ["push", remote, "--delete", `refs/tags/${name}`]), () => said(dir, `Deleted tag ${name} from ${remote}`));
 
 // ---- the stash -------------------------------------------------------------------------------
 
@@ -147,10 +195,32 @@ export function gitStash(dir: string, kind: "" | "untracked" | "staged" = "", me
   if (kind === "untracked") args.push("-u");
   if (kind === "staged") args.push("-S");
   if (message.trim()) args.push("-m", message);
-  return gitRun(dir, args);
+  return told(() => gitRun(dir, args), (out) => /no local changes/i.test(out) ? said(dir, "Nothing to stash") : said(dir, "Stashed the changes", message.trim()));
 }
 const stashRef = (index?: number) => (index === undefined ? [] : [`stash@{${index}}`]);
-export const gitStashApply = (dir: string, index?: number) => gitRun(dir, ["stash", "apply", ...stashRef(index)]);
-export const gitStashPop = (dir: string, index?: number) => gitRun(dir, ["stash", "pop", ...stashRef(index)]);
-export const gitStashDrop = (dir: string, index?: number) => gitRun(dir, ["stash", "drop", ...stashRef(index)]);
-export const gitStashClear = (dir: string) => gitRun(dir, ["stash", "clear"]);
+const stashName = (index?: number) => (index ? `stash ${index}` : "the stash");
+export const gitStashApply = (dir: string, index?: number) =>
+  told(() => gitRun(dir, ["stash", "apply", ...stashRef(index)]), () => said(dir, `Applied ${stashName(index)}`));
+export const gitStashPop = (dir: string, index?: number) =>
+  told(() => gitRun(dir, ["stash", "pop", ...stashRef(index)]), () => said(dir, `Popped ${stashName(index)}`));
+export const gitStashDrop = (dir: string, index?: number) =>
+  told(() => gitRun(dir, ["stash", "drop", ...stashRef(index)]), () => said(dir, `Dropped ${stashName(index)}`));
+export const gitStashClear = (dir: string) => told(() => gitRun(dir, ["stash", "clear"]), () => said(dir, "Cleared every stash"));
+
+// ---- Deck's own commands, shared with the Editor, said here ------------------------------------
+//
+// Checkout and discard are Deck's (the Editor runs them too), so this plugin's calls go through
+// these, which add the notification; the Editor's stay quiet.
+
+export const gitCheckout = (dir: string, name: string) =>
+  told(() => deckCheckout(dir, name), () => said(dir, `Checked out ${name}`));
+export const gitCheckoutNew = (dir: string, name: string) =>
+  told(() => deckCheckoutNew(dir, name), () => said(dir, `Created ${name}`, "checked out"));
+/** A remote branch, as a local one tracking it. */
+export const gitCheckoutTrack = (dir: string, remote: string) =>
+  told(() => deckCheckoutTrack(dir, remote), () => said(dir, `Checked out ${remote.replace(/^[^/]+\//, "")}`, `tracking ${remote}`));
+export const gitCheckoutDetach = (dir: string, rev: string) =>
+  told(() => deckCheckoutDetach(dir, rev), () => said(dir, `Checked out ${short(rev)}`, "no branch (detached)"));
+/** Throw away the changes to these files. */
+export const gitDiscard = (dir: string, paths: string[]) =>
+  told(() => deckDiscard(dir, paths), () => said(dir, `Discarded ${paths.length === 1 ? paths[0].split("/").pop() : `${paths.length} changes`}`));
