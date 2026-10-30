@@ -4,8 +4,8 @@
   "description": "A commit graph for each workspace: stage and commit, branches, tags and stashes, file history, diffs, and GitHub/GitLab pull requests with review comments. Formerly Deck's built-in Git Graph.",
   "icon": "GitBranch",
   "color": "#f97316",
-  "version": "1.5.1",
-  "minDeck": "1.12.0",
+  "version": "1.6.0",
+  "minDeck": "1.13.0",
   "permissions": [
     "files",
     "processes",

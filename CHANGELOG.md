@@ -1,7 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.6.0 (2026-10-30)
 
+- A licence, this changelog, a README rewritten with a screenshot, and the permissions it uses
+  declared. Built from its own lockfile.
 - Conflicts resolved in a code editor in the Git pane, with a side-by-side view
 - Resolve conflicts in the Git pane, not the editor; the banner turns green once none is left
 - A Merge Changes section, take either side, and Mark as Resolved that checks the disk
