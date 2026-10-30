@@ -1377,11 +1377,11 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
       {/* Mid-operation: every other git command will fail until this is resolved, and the only
           other sign is a file with conflict markers in it. */}
       {pending && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-subtle px-3 py-2 text-[12px]"
-          style={{ background: "color-mix(in srgb, rgb(var(--tone-red-400)) 14%, transparent)" }}>
-          <AlertTriangle size={13} style={{ color: "rgb(var(--tone-red-400))" }} className="shrink-0" />
+        <div className="flex shrink-0 items-center gap-2 border-b border-subtle px-3 py-2 text-[12px]" /* red while a conflict ("!") is left, green once none is */
+          style={{ background: `color-mix(in srgb, rgb(var(--tone-${changes.some((c) => c.letter === "!") ? "red" : "emerald"}-400)) 14%, transparent)` }}>
+          <AlertTriangle size={13} style={{ color: `rgb(var(--tone-${changes.some((c) => c.letter === "!") ? "red" : "emerald"}-400))` }} className="shrink-0" />
           <span className="min-w-0 flex-1 text-text-secondary">
-            This {pending} stopped on conflicts. Resolve the marked files and stage them, then continue — or abandon it.
+            {changes.some((c) => c.letter === "!") ? `This ${pending} stopped on conflicts. Resolve the files under Merge Changes, then continue — or abandon it.` : `Every conflict is resolved. Continue to finish the ${pending} — or abandon it.`}
           </span>
           <button onClick={() => void act(() => gitContinueOp(root, pending), `Could not continue the ${pending}.`)}
             title="Stage the resolved files first"

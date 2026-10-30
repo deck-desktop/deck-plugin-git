@@ -7,7 +7,7 @@
     "build": "deck-plugin build",
     "dev": "deck-plugin dev",
     "install-local": "deck-plugin install",
-    "test": "node git.check.mjs && node src/prs.check.mjs && node src/repoorder.check.mjs && node src/tablabels.check.mjs"
+    "test": "node git.check.mjs && node src/conflicts.check.mjs && node src/prs.check.mjs && node src/repoorder.check.mjs && node src/tablabels.check.mjs"
   },
   "devDependencies": {
     "@tauri-apps/api": "^2.11.1",

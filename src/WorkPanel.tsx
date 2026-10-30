@@ -7,9 +7,9 @@
 import { Fragment, useEffect, useState } from "react";
 import { Plus, Minus, Undo2, X, FileSymlink, History, Sparkles, Loader2, ChevronRight, ChevronDown, List, ListTree, ArrowUpFromLine, RefreshCw, Check, GitCompare } from "lucide-react";
 import {
-  gitStatus, gitAiCommitMsg, gitFileBytes, fsReadBytes, fsReveal, type GitStatusRow,
+  gitStatus, gitAiCommitMsg, gitFileBytes, fsRead, fsReadBytes, fsReveal, type GitStatusRow,
 } from "../shim/bridge.js";
-import { gitDiscard, gitStage, gitUnstage, gitCommit, gitCommitAmend, gitUndoCommit, gitHead, gitPush, gitPullRebase } from "./git";
+import { gitDiscard, gitStage, gitUnstage, gitCommit, gitCommitAmend, gitUndoCommit, gitHead, gitPush, gitPullRebase, gitTakeSide } from "./git";
 import { FileIcon } from "../shim/ui.js";
 import { useMessageVersion, useWriting, writeMessage } from "./aimessage";
 import type { ConfirmState } from "../shim/ui.js";
@@ -75,7 +75,7 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
   /** Shared with the Commit panel's toggle, so both lists read the same way. */
   treeView: boolean;
   onToggleTree: () => void;
-  /** Click a row: its diff. */
+  /** Click a row: its diff, or for a conflict the conflict view. */
   onOpenFile: (row: GitStatusRow) => void;
   /** The row's Open File button: the file itself, to edit — Source Control's button. */
   onEditFile: (row: GitStatusRow) => void;
@@ -124,8 +124,22 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
     window.dispatchEvent(new CustomEvent(GIT_CHANGED, { detail: root }));
   };
 
-  const unstaged = rows.filter((r) => !r.staged);
+  // Conflicts ("!") apart, first: until they are resolved and staged nothing can be committed.
+  const conflicts = rows.filter((r) => r.letter === "!");
+  const unstaged = rows.filter((r) => !r.staged && r.letter !== "!");
   const staged = rows.filter((r) => r.staged);
+  /**
+   * Mark a conflict resolved: stage it as it is on disk. A file whose disk copy still holds a
+   * block asks first, as a block resolved in the editor and not yet saved is still there.
+   */
+  const markResolved = async (r: GitStatusRow) => {
+    const stage = () => void run(() => gitStage(root, [r.rel]), "Stage failed.");
+    const text = await fsRead(r.path).catch(() => "");
+    if (!/^<{7}(?: |\r?$)/m.test(text)) return stage();
+    onConfirm({ title: `${baseName(r.rel)} still has conflict markers`, confirmLabel: "Mark resolved anyway", danger: false,
+      body: "Its file on disk still holds a <<<<<<< block. Resolved it in the editor? Save it first: marking it resolved stages the file as it is on disk.",
+      onConfirm: stage });
+  };
   // Staged files are unstaged first, so they go back to the last commit rather than to the index,
   // and a file only ever added is deleted, as an untracked one is.
   const discard = (list: GitStatusRow[]) => onConfirm({
@@ -147,9 +161,20 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
     const onStaged = !!rs[0]?.staged, n = `${rs.length} file${rs.length === 1 ? "" : "s"}`;
     const deleted = f?.letter === "D";
     const copy = (text: string) => void navigator.clipboard.writeText(text).catch((e) => console.warn("[git] copy failed", e));
+    // A conflict: no diff to open (the index holds both sides), and nothing to discard mid-merge.
+    if (f?.letter === "!") return [
+      { label: "Resolve Conflicts", icon: GitCompare, onClick: () => onOpenFile(f) },
+      "sep",
+      { label: "Accept All Current (ours)", onClick: () => void run(() => gitTakeSide(root, [f.rel], "ours"), "Could not take the current change.") },
+      { label: "Accept All Incoming (theirs)", onClick: () => void run(() => gitTakeSide(root, [f.rel], "theirs"), "Could not take the incoming change.") },
+      { label: "Mark as Resolved", icon: Check, onClick: () => void markResolved(f) },
+      "sep",
+      { label: "Copy Path", onClick: () => copy(f.path) },
+      { label: "Copy Relative Path", onClick: () => copy(f.rel) },
+    ];
     return [
       ...(f ? [
-        { label: "Open Changes", icon: GitCompare, onClick: () => onOpenFile(f) },
+        { label: "Open Changes", icon: GitCompare, disabled: f.letter === "!", onClick: () => onOpenFile(f) },
         { label: "Open File", icon: FileSymlink, disabled: deleted, onClick: () => onEditFile(f) },
         ...(onFileHistory && f.letter !== "?" && f.letter !== "A" ? [{ label: "File History", icon: History, onClick: () => onFileHistory(f) }] : []),
         "sep",
@@ -157,7 +182,7 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
       onStaged
         ? { label: f ? "Unstage Changes" : `Unstage ${n}`, icon: Minus, onClick: () => void run(() => gitUnstage(root, rs.map((r) => r.rel)), "Unstage failed.") }
         : { label: f ? "Stage Changes" : `Stage ${n}`, icon: Plus, onClick: () => void run(() => gitStage(root, rs.map((r) => r.rel)), "Stage failed.") },
-      { label: f ? "Discard Changes" : `Discard Changes in ${n}`, icon: Undo2, danger: true, onClick: () => discard(rs) },
+      { label: f ? "Discard Changes" : `Discard Changes in ${n}`, icon: Undo2, danger: true, disabled: rs.some((r) => r.letter === "!"), onClick: () => discard(rs) },
       ...(f ? [
         "sep",
         { label: "Copy Path", onClick: () => copy(f.path) },
@@ -221,6 +246,7 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
         + (selected === rowKey(r) ? "text-text-primary" : "text-text-secondary hover:bg-white/5 hover:text-text-primary")}
         style={{ paddingLeft: depth !== undefined ? 6 + depth * 14 : undefined, background: selected === rowKey(r) ? "var(--accent-soft)" : undefined }}
         onContextMenu={(e) => openMenu(e, [r], r)}>
+        {/* A conflict ("!") opens in the conflict view, through the same handler as a diff. */}
         <button onClick={() => onOpenFile(r)} title={r.rel} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
           {depth !== undefined && <span className="w-3 shrink-0" /> /* align with folder chevrons */}
           <FileIcon icon={theme.file(name)} size={15} />
@@ -235,9 +261,12 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
           {onFileHistory && r.letter !== "?" && r.letter !== "A" && (
             <button onClick={() => onFileHistory(r)} title="File history in the graph" className={iconBtn}><History size={13} /></button>
           )}
-          {!r.staged && <button onClick={() => discard([r])} title="Discard changes" className={dangerBtn}><Undo2 size={13} /></button>}
+          {/* Git refuses to discard a conflict mid-merge; staging it marks it resolved. */}
+          {!r.staged && r.letter !== "!" && <button onClick={() => discard([r])} title="Discard changes" className={dangerBtn}><Undo2 size={13} /></button>}
           {r.staged
             ? <button onClick={() => void run(() => gitUnstage(root, [r.rel]), "Unstage failed.")} title="Unstage" className={iconBtn}><Minus size={13} /></button>
+            : r.letter === "!"
+            ? <button onClick={() => void markResolved(r)} title="Mark as Resolved" className={iconBtn}><Plus size={13} /></button>
             : <button onClick={() => void run(() => gitStage(root, [r.rel]), "Stage failed.")} title="Stage" className={iconBtn}><Plus size={13} /></button>}
         </span>
         <span className="w-4 shrink-0 text-center text-[11px] font-semibold" style={{ color: statusColor(r.letter) }}>{r.letter}</span>
@@ -245,7 +274,8 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
     );
   };
 
-  const section = (title: string, list: GitStatusRow[], action: React.ReactNode) => {
+  // `flat`: always a list (conflicts), as a folder row's Discard would reach them.
+  const section = (title: string, list: GitStatusRow[], action: React.ReactNode, flat = false) => {
     const open = !folded.has(title);
     return (
       <div className="mb-1">
@@ -258,7 +288,7 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
           <span className="hidden items-center gap-0.5 group-hover:flex">{list.length > 0 && action}</span>
           <span className={"ml-1 " + countChip}>{list.length}</span>
         </div>
-        {open && (treeView
+        {open && (treeView && !flat
           ? buildChangeTree(list).map((n) => treeNode(n, 0, title))
           : list.map((r) => row(r)))}
       </div>
@@ -307,6 +337,7 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
             <span>Nothing to commit. Every file matches the last commit.</span>
           </div>
         )}
+        {conflicts.length > 0 && section("Merge Changes", conflicts, null, true)}
         {section("Unstaged", unstaged, <>
           <button onClick={() => discard(unstaged)} title="Discard all" className={dangerBtn}><Undo2 size={13} /></button>
           <button onClick={() => void run(() => gitStage(root, []), "Stage failed.")} title="Stage all" className={iconBtn}><Plus size={13} /></button>
