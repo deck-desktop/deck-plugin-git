@@ -55,11 +55,17 @@ export async function gitSetIndexContent(dir: string, rel: string, content: stri
   await gitRun(dir, ["update-index", "--add", "--cacheinfo", `${mode},${sha},${rel}`]);
 }
 
-/** Smart commit (VS Code's default): commit what is staged; with nothing staged, stage all first. */
+/**
+ * Smart commit (VS Code's default): commit what is staged; with nothing staged, stage all first.
+ * Never stages all while a conflict is unresolved, which would stage its markers: git then refuses
+ * the commit and says why. Refused too while staged lines still hold conflict markers.
+ */
 export async function gitCommit(dir: string, message: string): Promise<string> {
   if (!message.trim()) throw "empty commit message";
+  const unmerged = (await gitRun(dir, ["diff", "--name-only", "--diff-filter=U"]).catch(() => "")).trim();
   // `diff --cached --quiet` exits 0 when nothing is staged.
-  if (await succeeds(dir, ["diff", "--cached", "--quiet"])) await gitRun(dir, ["add", "-A"]);
+  if (!unmerged && await succeeds(dir, ["diff", "--cached", "--quiet"])) await gitRun(dir, ["add", "-A"]);
+  await noLeftoverMarkers(dir);
   const branch = await branchOf(dir);
   return told(() => gitRun(dir, ["commit", "-m", message]), () => said(dir, branch ? `Committed to ${branch}` : "Committed", message.trim().split(/\r?\n/)[0]));
 }
@@ -159,12 +165,23 @@ export async function gitPendingOp(dir: string): Promise<string> {
   }
   return "";
 }
+/**
+ * Refuse while staged lines still hold conflict markers. `diff --check` reports them (and
+ * whitespace errors, not counted here) and exits non-zero, so its text comes as the error.
+ */
+async function noLeftoverMarkers(dir: string): Promise<void> {
+  const out = await gitRun(dir, ["diff", "--cached", "--check"]).catch((e) => String(e));
+  const at = out.split(/\r?\n/).filter((l) => l.endsWith(": leftover conflict marker")).map((l) => l.slice(0, -": leftover conflict marker".length));
+  if (at.length) throw `Conflict markers are still in ${at.slice(0, 5).join(", ")}${at.length > 5 ? "…" : ""}. Remove them and stage the file again first.`;
+}
 /** Finish what gitPendingOp reported, once its conflicts are resolved and staged. */
-export const gitContinueOp = (dir: string, op: string) =>
-  told(() => gitRun(dir, ["rebase", "revert", "cherry-pick"].includes(op)
+export async function gitContinueOp(dir: string, op: string) {
+  await noLeftoverMarkers(dir);
+  return told(() => gitRun(dir, ["rebase", "revert", "cherry-pick"].includes(op)
     // No editor: git would otherwise wait on one for the message, with no window to show it in.
     ? ["-c", "core.editor=true", op, "--continue"]
     : ["commit", "--no-edit"]), () => said(dir, `Finished the ${op}`));
+}
 /** Abandon it, restoring the state before it started. */
 export const gitAbortOp = (dir: string, op: string) =>
   told(() => gitRun(dir, [["revert", "cherry-pick", "rebase"].includes(op) ? op : "merge", "--abort"]), () => said(dir, `Abandoned the ${op}`));

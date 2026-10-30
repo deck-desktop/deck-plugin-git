@@ -149,7 +149,7 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
     const copy = (text: string) => void navigator.clipboard.writeText(text).catch((e) => console.warn("[git] copy failed", e));
     return [
       ...(f ? [
-        { label: "Open Changes", icon: GitCompare, onClick: () => onOpenFile(f) },
+        { label: "Open Changes", icon: GitCompare, disabled: f.letter === "!", onClick: () => onOpenFile(f) },
         { label: "Open File", icon: FileSymlink, disabled: deleted, onClick: () => onEditFile(f) },
         ...(onFileHistory && f.letter !== "?" && f.letter !== "A" ? [{ label: "File History", icon: History, onClick: () => onFileHistory(f) }] : []),
         "sep",
@@ -157,7 +157,7 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
       onStaged
         ? { label: f ? "Unstage Changes" : `Unstage ${n}`, icon: Minus, onClick: () => void run(() => gitUnstage(root, rs.map((r) => r.rel)), "Unstage failed.") }
         : { label: f ? "Stage Changes" : `Stage ${n}`, icon: Plus, onClick: () => void run(() => gitStage(root, rs.map((r) => r.rel)), "Stage failed.") },
-      { label: f ? "Discard Changes" : `Discard Changes in ${n}`, icon: Undo2, danger: true, onClick: () => discard(rs) },
+      { label: f ? "Discard Changes" : `Discard Changes in ${n}`, icon: Undo2, danger: true, disabled: rs.some((r) => r.letter === "!"), onClick: () => discard(rs) },
       ...(f ? [
         "sep",
         { label: "Copy Path", onClick: () => copy(f.path) },
@@ -221,7 +221,8 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
         + (selected === rowKey(r) ? "text-text-primary" : "text-text-secondary hover:bg-white/5 hover:text-text-primary")}
         style={{ paddingLeft: depth !== undefined ? 6 + depth * 14 : undefined, background: selected === rowKey(r) ? "var(--accent-soft)" : undefined }}
         onContextMenu={(e) => openMenu(e, [r], r)}>
-        <button onClick={() => onOpenFile(r)} title={r.rel} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+        {/* A conflict ("!") opens as the file: the index has no single copy of it to diff against. */}
+        <button onClick={() => (r.letter === "!" ? onEditFile(r) : onOpenFile(r))} title={r.rel} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
           {depth !== undefined && <span className="w-3 shrink-0" /> /* align with folder chevrons */}
           <FileIcon icon={theme.file(name)} size={15} />
           {/* Both may shrink, the folder first: a long name used to keep its full width and run
@@ -235,10 +236,11 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
           {onFileHistory && r.letter !== "?" && r.letter !== "A" && (
             <button onClick={() => onFileHistory(r)} title="File history in the graph" className={iconBtn}><History size={13} /></button>
           )}
-          {!r.staged && <button onClick={() => discard([r])} title="Discard changes" className={dangerBtn}><Undo2 size={13} /></button>}
+          {/* Git refuses to discard a conflict mid-merge; staging it marks it resolved. */}
+          {!r.staged && r.letter !== "!" && <button onClick={() => discard([r])} title="Discard changes" className={dangerBtn}><Undo2 size={13} /></button>}
           {r.staged
             ? <button onClick={() => void run(() => gitUnstage(root, [r.rel]), "Unstage failed.")} title="Unstage" className={iconBtn}><Minus size={13} /></button>
-            : <button onClick={() => void run(() => gitStage(root, [r.rel]), "Stage failed.")} title="Stage" className={iconBtn}><Plus size={13} /></button>}
+            : <button onClick={() => void run(() => gitStage(root, [r.rel]), "Stage failed.")} title={r.letter === "!" ? "Mark as Resolved" : "Stage"} className={iconBtn}><Plus size={13} /></button>}
         </span>
         <span className="w-4 shrink-0 text-center text-[11px] font-semibold" style={{ color: statusColor(r.letter) }}>{r.letter}</span>
       </div>
