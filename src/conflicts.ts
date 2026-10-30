@@ -1,5 +1,5 @@
-// Merge conflict blocks in a file's lines, and the lines with one resolved: what the conflict view
-// (ConflictView.tsx) shows and writes. Pure, with a check beside it.
+// Merge conflict blocks in a file's lines: what the conflict view (ConflictView.tsx) counts. Pure,
+// with a check beside it.
 //
 //   <<<<<<< HEAD          the current change (this branch)
 //   ...
@@ -19,7 +19,6 @@ export interface ConflictBlock {
   current: string;
   incoming: string;
 }
-export type ConflictPick = "current" | "incoming" | "both";
 
 // Git writes exactly seven, then a space and a label, or nothing.
 const START = /^<{7}(?: |\r?$)/, BASE = /^\|{7}(?: |\r?$)/, MID = /^={7}\r?$/, END = /^>{7}(?: |\r?$)/;
@@ -41,15 +40,15 @@ export function findConflicts(lines: string[]): ConflictBlock[] {
   return out;
 }
 
-/** Each side's lines. The base (diff3) is in neither. */
-export const sides = (lines: string[], b: ConflictBlock) => ({
-  current: lines.slice(b.start, (b.base ?? b.mid) - 1),
-  incoming: lines.slice(b.mid, b.end - 1),
-});
 
-/** The file's lines with block `b` replaced by one side, or both with the current change first. */
-export function resolveBlock(lines: string[], b: ConflictBlock, pick: ConflictPick): string[] {
-  const s = sides(lines, b);
-  const keep = pick === "current" ? s.current : pick === "incoming" ? s.incoming : [...s.current, ...s.incoming];
-  return [...lines.slice(0, b.start - 1), ...keep, ...lines.slice(b.end)];
+/** The file as one side has it: every block replaced by that side's lines, a diff3 base dropped. */
+export function sideOf(lines: string[], side: "current" | "incoming"): string[] {
+  const out: string[] = [];
+  let i = 0;
+  for (const b of findConflicts(lines)) {
+    out.push(...lines.slice(i, b.start - 1));
+    out.push(...(side === "current" ? lines.slice(b.start, (b.base ?? b.mid) - 1) : lines.slice(b.mid, b.end - 1)));
+    i = b.end;
+  }
+  return [...out, ...lines.slice(i)];
 }

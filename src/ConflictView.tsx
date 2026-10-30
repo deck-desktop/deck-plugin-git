@@ -1,33 +1,24 @@
-// A conflicted file resolved here, in the Git pane, rather than in the editor: each block a merge,
-// rebase or cherry-pick left in it, the current change beside the incoming one, with buttons to keep
-// either or both. A choice writes the file at once. When no block is left, Mark as Resolved stages
-// it; the whole file can also be taken from either side.
-import { useEffect, useState } from "react";
-import { Check } from "lucide-react";
+// A conflicted file resolved here, in the Git pane, rather than in the editor tab: the whole file in a
+// code editor, each block a merge, rebase or cherry-pick left in it tinted, with Deck's Accept
+// Current / Incoming / Both buttons over it (Deck's conflict lens, which every file model gets). The
+// file is written as it changes. When no block is left, Mark as Resolved stages it; the whole file
+// can also be taken from either side. Side by side adds both sides' whole files above it (ConflictSides).
+import { useEffect, useRef, useState } from "react";
+import { Check, Columns2, Rows2 } from "lucide-react";
 import { fsRead, fsWrite, type GitStatusRow } from "../shim/bridge.js";
-import type { ConfirmState } from "../shim/ui.js";
-import { findConflicts, resolveBlock, sides, type ConflictBlock, type ConflictPick } from "./conflicts";
+import { monaco } from "../shim/monaco.js";
+import { monacoOptionsFrom, useEditorSettings, useResize, type ConfirmState } from "../shim/ui.js";
+import { findConflicts } from "./conflicts";
+import { ConflictSides } from "./ConflictSides";
 import { gitStage, gitTakeSide } from "./git";
 import { GIT_CHANGED } from "./WorkPanel";
 import { accentFill, primaryBtn, secondaryBtn } from "./util";
 
-/** The lines shown above a block, so it can be placed in the file. */
-const CONTEXT = 3;
-const tint = { current: "63, 185, 80", incoming: "79, 140, 255" } as const;
-
-function Side({ kind, label, lines }: { kind: "current" | "incoming"; label: string; lines: string[] }) {
-  return (
-    <div className="min-w-0 overflow-hidden rounded-lg border border-subtle" style={{ background: `rgba(${tint[kind]}, 0.08)` }}>
-      <div className="flex h-7 items-center gap-1.5 px-2.5 text-[11.5px] font-medium" style={{ background: `rgba(${tint[kind]}, 0.18)` }}>
-        <span className="text-text-primary">{kind === "current" ? "Current change" : "Incoming change"}</span>
-        {label && <span className="min-w-0 truncate font-normal text-text-muted">{label}</span>}
-      </div>
-      <pre className="scroll-thin overflow-x-auto px-2.5 py-1.5 font-mono text-[12px] leading-5 text-text-primary">
-        {lines.length ? lines.join("\n") : <span className="italic text-text-muted">(nothing: this side removed these lines)</span>}
-      </pre>
-    </div>
-  );
-}
+/** How long after the last edit the file is written. */
+const SAVE_MS = 250;
+const SPLIT_KEY = "deck-git-conflict-split";
+const loadSplit = () => { try { return localStorage.getItem(SPLIT_KEY) === "1"; } catch { return false; } };
+const saveSplit = (on: boolean) => { try { localStorage.setItem(SPLIT_KEY, on ? "1" : "0"); } catch { /* a preference only */ } };
 
 export function ConflictView({ root, row, onConfirm, onResolved }: {
   root: string;
@@ -36,63 +27,89 @@ export function ConflictView({ root, row, onConfirm, onResolved }: {
   /** After it is staged, by Mark as Resolved or by taking the whole file from one side. */
   onResolved: () => void;
 }) {
-  const [text, setText] = useState<string | null>(null);
-  useEffect(() => {
-    void fsRead(row.path).then(setText, (e) => { console.warn("[git] reading the conflicted file failed", e); setText(""); });
-  }, [row.path]);
-  if (text === null) return null;
+  const settings = useEditorSettings();
+  const host = useRef<HTMLDivElement>(null);
+  const ed = useRef<ReturnType<typeof monaco.editor.create> | null>(null);
+  const [left, setLeft] = useState<number | null>(null);
+  const [model, setModel] = useState<ReturnType<typeof monaco.editor.createModel> | null>(null);
+  const [split, setSplit] = useState(loadSplit);
+  const [sidesH, sidesDrag] = useResize({ initial: 300, min: 120, max: 1400, direction: "vertical" });
+  // The write waiting on SAVE_MS, run now by flush() and dropped by taking a whole side.
+  const pending = useRef<{ timer: ReturnType<typeof setTimeout>; run: () => Promise<void> } | null>(null);
 
-  const eol = text.includes("\r\n") ? "\r\n" : "\n";
-  const lines = text.split(/\r?\n/);
-  const blocks = findConflicts(lines);
-  const changed = () => window.dispatchEvent(new CustomEvent(GIT_CHANGED, { detail: root }));
   const fail = (what: string) => (e: unknown) => {
     console.warn(`[git] ${what} failed`, e);
     onConfirm({ title: `${what} failed`, confirmLabel: "OK", danger: false, acknowledge: true, onConfirm: () => {}, body: String(e).replace(/^Error:\s*/, "") });
   };
-  const pick = (b: ConflictBlock, p: ConflictPick) => {
-    const next = resolveBlock(lines, b, p).join(eol);
-    void fsWrite(row.path, next).then(() => { setText(next); changed(); }, fail("Saving the file"));
+  const changed = () => { window.dispatchEvent(new CustomEvent(GIT_CHANGED, { detail: root })); };
+  const flush = async () => {
+    const p = pending.current;
+    if (!p) return;
+    clearTimeout(p.timer);
+    pending.current = null;
+    await p.run();
   };
-  const whole = (side: "ours" | "theirs") => void gitTakeSide(root, [row.rel], side).then(() => { changed(); onResolved(); }, fail("Taking one side"));
-  const resolve = () => void gitStage(root, [row.rel]).then(() => { changed(); onResolved(); }, fail("Marking it resolved"));
+
+  useEffect(() => {
+    let gone = false, cleanup = () => {};
+    void fsRead(row.path).then((text) => {
+      if (gone || !host.current) return;
+      const uri = monaco.Uri.file(row.path);
+      // The file may be open in an editor tab too: share its model, as Deck's own editors do.
+      const shared = monaco.editor.getModel(uri);
+      const model = shared ?? monaco.editor.createModel(text, undefined, uri);
+      if (shared && shared.getValue() !== text) shared.setValue(text);
+      const e = monaco.editor.create(host.current, { ...monacoOptionsFrom(settings), model, automaticLayout: true });
+      ed.current = e;
+      setModel(model);
+      const count = () => findConflicts(model.getLinesContent()).length;
+      setLeft(count());
+      const first = findConflicts(model.getLinesContent())[0];
+      if (first) e.revealLineInCenter(first.start);
+      const sub = model.onDidChangeContent(() => {
+        setLeft(count());
+        if (pending.current) clearTimeout(pending.current.timer);
+        const run = () => fsWrite(row.path, model.getValue()).then(changed, fail("Saving the file"));
+        pending.current = { run, timer: setTimeout(() => { pending.current = null; void run(); }, SAVE_MS) };
+      });
+      cleanup = () => { sub.dispose(); e.dispose(); ed.current = null; setModel(null); if (!shared) model.dispose(); };
+    }, fail("Reading the conflicted file"));
+    return () => { gone = true; void flush(); cleanup(); };
+    // Settings changes are applied below, without remaking the editor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [row.path]);
+  useEffect(() => { ed.current?.updateOptions(monacoOptionsFrom(settings)); }, [settings]);
+
+  const whole = (side: "ours" | "theirs") => {
+    // The edits so far are dropped: the file is about to be replaced by one side.
+    if (pending.current) { clearTimeout(pending.current.timer); pending.current = null; }
+    void gitTakeSide(root, [row.rel], side).then(() => { changed(); onResolved(); }, fail("Taking one side"));
+  };
+  const resolve = () => void flush().then(() => gitStage(root, [row.rel])).then(() => { changed(); onResolved(); }, fail("Marking it resolved"));
+  const n = left ?? 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-subtle px-3 py-2 text-[12.5px]">
         <span className="min-w-0 flex-1 text-text-secondary">
-          {blocks.length ? `${blocks.length} conflict${blocks.length === 1 ? "" : "s"} left. Keep a side of each, or take the whole file from one.`
+          {left === null ? "" : n ? `${n} conflict${n === 1 ? "" : "s"} left. Pick a side over each block, or edit the file.`
             : "Every conflict here is resolved. Mark it resolved to stage it."}
         </span>
+        <button onClick={() => { setSplit(!split); saveSplit(!split); }} title={split ? "Show the file only" : "Show both sides' files above it"}
+          className="flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary">
+          {split ? <><Rows2 size={13} /> Inline</> : <><Columns2 size={13} /> Side by side</>}
+        </button>
         <button onClick={() => whole("ours")} className={secondaryBtn}>Take all current</button>
         <button onClick={() => whole("theirs")} className={secondaryBtn}>Take all incoming</button>
-        <button onClick={resolve} disabled={blocks.length > 0} title={blocks.length ? "Resolve every conflict first" : "Stage the file"}
+        <button onClick={resolve} disabled={left === null || n > 0} title={n ? "Resolve every conflict first" : "Stage the file"}
           className={primaryBtn} style={accentFill}><Check size={14} /> Mark as Resolved</button>
       </div>
-      <div className="scroll-thin min-h-0 flex-1 space-y-5 overflow-y-auto px-3 py-3">
-        {blocks.map((b) => {
-          const s = sides(lines, b);
-          const above = lines.slice(Math.max(0, b.start - 1 - CONTEXT), b.start - 1);
-          return (
-            <div key={b.start} className="space-y-1.5">
-              <div className="text-[11.5px] text-text-muted">Line {b.start}</div>
-              {above.length > 0 && <pre className="overflow-x-auto px-2.5 font-mono text-[12px] leading-5 text-text-muted">{above.join("\n")}</pre>}
-              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                <Side kind="current" label={b.current} lines={s.current} />
-                <Side kind="incoming" label={b.incoming} lines={s.incoming} />
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                <button onClick={() => pick(b, "current")} className={secondaryBtn}>Accept current</button>
-                <button onClick={() => pick(b, "incoming")} className={secondaryBtn}>Accept incoming</button>
-                <button onClick={() => pick(b, "both")} className={secondaryBtn}>Accept both</button>
-              </div>
-            </div>
-          );
-        })}
-        {!blocks.length && (
-          <pre className="scroll-thin overflow-x-auto rounded-lg border border-subtle bg-elev px-3 py-2 font-mono text-[12px] leading-5 text-text-secondary">{text}</pre>
-        )}
-      </div>
+      {split && model && <div className="flex min-h-0 shrink-0 flex-col" style={{ height: sidesH }}><ConflictSides model={model} settings={settings} /></div>}
+      {split && <>
+        <div {...sidesDrag} title="Drag to resize" className="h-1.5 shrink-0 cursor-row-resize transition-colors hover:bg-[var(--accent)]" />
+        <div className="flex h-7 shrink-0 items-center px-3 text-[11.5px] font-medium text-text-secondary">Result</div>
+      </>}
+      <div ref={host} className="min-h-0 flex-1" />
     </div>
   );
 }
