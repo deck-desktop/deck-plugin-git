@@ -75,7 +75,7 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
   /** Shared with the Commit panel's toggle, so both lists read the same way. */
   treeView: boolean;
   onToggleTree: () => void;
-  /** Click a row: its diff. */
+  /** Click a row: its diff, or for a conflict the conflict view. */
   onOpenFile: (row: GitStatusRow) => void;
   /** The row's Open File button: the file itself, to edit — Source Control's button. */
   onEditFile: (row: GitStatusRow) => void;
@@ -163,7 +163,7 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
     const copy = (text: string) => void navigator.clipboard.writeText(text).catch((e) => console.warn("[git] copy failed", e));
     // A conflict: no diff to open (the index holds both sides), and nothing to discard mid-merge.
     if (f?.letter === "!") return [
-      { label: "Open File", icon: FileSymlink, onClick: () => onEditFile(f) },
+      { label: "Resolve Conflicts", icon: GitCompare, onClick: () => onOpenFile(f) },
       "sep",
       { label: "Accept All Current (ours)", onClick: () => void run(() => gitTakeSide(root, [f.rel], "ours"), "Could not take the current change.") },
       { label: "Accept All Incoming (theirs)", onClick: () => void run(() => gitTakeSide(root, [f.rel], "theirs"), "Could not take the incoming change.") },
@@ -246,8 +246,8 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
         + (selected === rowKey(r) ? "text-text-primary" : "text-text-secondary hover:bg-white/5 hover:text-text-primary")}
         style={{ paddingLeft: depth !== undefined ? 6 + depth * 14 : undefined, background: selected === rowKey(r) ? "var(--accent-soft)" : undefined }}
         onContextMenu={(e) => openMenu(e, [r], r)}>
-        {/* A conflict ("!") opens as the file: the index has no single copy of it to diff against. */}
-        <button onClick={() => (r.letter === "!" ? onEditFile(r) : onOpenFile(r))} title={r.rel} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+        {/* A conflict ("!") opens in the conflict view, through the same handler as a diff. */}
+        <button onClick={() => onOpenFile(r)} title={r.rel} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
           {depth !== undefined && <span className="w-3 shrink-0" /> /* align with folder chevrons */}
           <FileIcon icon={theme.file(name)} size={15} />
           {/* Both may shrink, the folder first: a long name used to keep its full width and run

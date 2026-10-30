@@ -18,6 +18,7 @@ import { fsWrite } from "../shim/bridge.js";
 import { gitSetIndexContent } from "./git";
 import { GIT_CHANGED } from "./WorkPanel";
 import { MediaDiff, mediaKind } from "../shim/ui.js";
+import { ConflictView } from "./ConflictView";
 import { baseName, toolBtn } from "./util";
 import { RepoSelect, RepoTabs, useRepoList, useRepoTabs } from "./RepoTabs";
 import { FileIcon } from "../shim/ui.js";
@@ -34,6 +35,8 @@ interface Diff {
   row?: GitStatusRow;
   v?: number;
   media?: { file: string; old: Uint8Array; nu?: Uint8Array; gone: boolean; labels: [string, string] };
+  /** A conflicted file ("!"), resolved in ConflictView rather than shown as a diff. */
+  conflict?: GitStatusRow;
 }
 interface CommitView { hash: string; files: CommitFile[]; log: GraphCommit[]; meta: GraphCommit | null }
 
@@ -141,6 +144,7 @@ export default function GraphPane({ cwd, paneId }: { cwd: string; paneId?: strin
   // An uncommitted file: staged and unstaged are separate diffs.
   const openStatusDiff = async (r: GitStatusRow) => {
     const key = `${WORKTREE}:${rowKey(r)}`;
+    if (r.letter === "!") { setDiff({ id: key, path: key, base: "", mod: "", title: `${baseName(r.rel)} (Conflicts)`, conflict: r }); return; }
     if (mediaKind(r.rel)) {
       // Staged: HEAD against the index. Unstaged: the index against the file on disk.
       const [old, nu] = await Promise.all([
@@ -251,7 +255,10 @@ export default function GraphPane({ cwd, paneId }: { cwd: string; paneId?: strin
             <MediaDiff key={diff.id} path={diff.media.file} oldBytes={diff.media.old} newBytes={diff.media.nu}
               gone={diff.media.gone} oldLabel={diff.media.labels[0]} newLabel={diff.media.labels[1]} />
           )}
-          {diff && !diff.media && (
+          {diff?.conflict && (
+            <ConflictView key={diff.id} root={repo} row={diff.conflict} onConfirm={setConfirm} onResolved={() => setDiff(null)} />
+          )}
+          {diff && !diff.media && !diff.conflict && (
             <MonacoDiff key={`${diff.id}:${diff.v ?? 0}`} path={diff.path} head={diff.base} work={diff.mod}
               sideBySide={settings.diffSideBySide} readOnly rev={0} onChange={() => {}}
               hunkAction={diff.row ? hunkAction(diff.row) : undefined} />
