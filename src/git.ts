@@ -174,6 +174,10 @@ async function noLeftoverMarkers(dir: string): Promise<void> {
   const at = out.split(/\r?\n/).filter((l) => l.endsWith(": leftover conflict marker")).map((l) => l.slice(0, -": leftover conflict marker".length));
   if (at.length) throw `Conflict markers are still in ${at.slice(0, 5).join(", ")}${at.length > 5 ? "…" : ""}. Remove them and stage the file again first.`;
 }
+/** Resolve conflicted files wholly to one side (ours: this branch; theirs: the one coming in), and stage them. */
+export const gitTakeSide = (dir: string, paths: string[], side: "ours" | "theirs") =>
+  told(async () => { await gitRun(dir, ["checkout", `--${side}`, "--", ...paths]); await gitRun(dir, ["add", "--", ...paths]); },
+    () => said(dir, `Took ${side === "ours" ? "the current change" : "the incoming change"}`, paths.join(", ")));
 /** Finish what gitPendingOp reported, once its conflicts are resolved and staged. */
 export async function gitContinueOp(dir: string, op: string) {
   await noLeftoverMarkers(dir);
