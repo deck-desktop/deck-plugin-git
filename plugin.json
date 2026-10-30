@@ -5,5 +5,11 @@
   "icon": "GitBranch",
   "color": "#f97316",
   "version": "1.5.1",
-  "minDeck": "1.12.0"
+  "minDeck": "1.12.0",
+  "permissions": [
+    "files",
+    "processes",
+    "git",
+    "network"
+  ]
 }
