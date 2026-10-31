@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.7.0 (2026-10-31)
+
+- Each commit shows its author's profile picture from GitHub or GitLab, and their initials when
+  there is none; the circles are bigger.
+- Resting the pointer on an author shows a card with their picture, name and email. Needs Deck
+  1.14.0.
+
 ## 1.6.0 (2026-10-30)
 
 - A licence, this changelog, a README rewritten with a screenshot, and the permissions it uses
