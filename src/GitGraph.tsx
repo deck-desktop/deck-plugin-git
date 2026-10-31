@@ -19,6 +19,7 @@ import { updateEditorSettings, useEditorSettings } from "../shim/ui.js";
 import { GRAPH_FONT_SIZES, iconBtn, toolBtn as iconToolBtn, secondaryBtn, dangerSecondaryBtn, primaryBtn, accentFill, toggledOn } from "./util";
 import { byHead, PR_CHANGED, primaryRemote, type PrInfo, type PrState } from "./prs";
 import { usePrHost } from "./prhost";
+import { AvatarNode } from "./avatar";
 import { decodeText } from "../shim/ui.js";
 
 /**
@@ -65,27 +66,6 @@ const loadRefCol = () => {
 const COLORS = ["#FFB000", "#DC267F", "#994F00", "#40B0A6", "#B66DFF"];
 const rot = (i: number, n: number) => ((i % n) + n) % n;
 
-// Avatar palette — deeper than the lane colours so white initials stay readable on them.
-const AVATAR_COLORS = ["#3b7dd8", "#4a9d5f", "#b5651d", "#8b5cf6", "#c2410c", "#0891b2", "#be185d", "#65a30d"];
-
-/**
- * A stable colour and initials for one person.
- *
- * Keyed on the email rather than the name: the same person commits as "Hasan" and "Hasan Zarif"
- * across machines, and two contributors can share a first name. No network request — a Gravatar
- * lookup would be a per-row fetch to a third party, which is a lot of traffic and a privacy
- * question for a panel that just needs to tell rows apart at a glance.
- */
-export function avatarOf(name: string, email: string) {
-  const key = (email || name).trim().toLowerCase();
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  const initials = parts.length >= 2
-    ? (parts[0][0] + parts[parts.length - 1][0])
-    : (parts[0]?.slice(0, 2) ?? "?");
-  return { color: AVATAR_COLORS[rot(h, AVATAR_COLORS.length)], initials: initials.toUpperCase() };
-}
 
 
 /**
@@ -138,18 +118,6 @@ function MergeStyleChoice({ pick }: { pick: (s: MergeStyle) => void }) {
 /** A pull request's state as its icon's colour, GitHub's own palette. */
 const PR_COLOR: Record<PrState, string> = { passing: "#3fb950", failing: "#f85149", pending: "#d29922", none: "var(--text-secondary)" };
 
-/** The author as the commit's node, ringed in its lane's colour — GitKraken's graph reads this way. */
-function AvatarNode({ x, ring, name, email }: { x: number; ring: string; name: string; email: string }) {
-  const { color, initials } = avatarOf(name, email);
-  return (
-    <g>
-      <title>{email ? `${name} <${email}>` : name}</title>
-      <circle cx={x} cy={H / 2} r={10} fill={color} stroke={ring} strokeWidth={1.5} />
-      <text x={x} y={H / 2} dy="0.35em" textAnchor="middle" fontSize={8.5} fontWeight={600} fill="#fff"
-        style={{ pointerEvents: "none" }}>{initials}</text>
-    </g>
-  );
-}
 
 interface Lane { id: string; color: string }
 interface RowVM {
@@ -198,7 +166,7 @@ function buildViewModels(commits: GraphCommit[]): RowVM[] {
  * `link` draws the line from the ref column's pill to this commit's node. `hover` is the ghost
  * label's line, shown only while the row is hovered, as the ghost label itself is.
  */
-function RowGraph({ vm, lanes, link, reach }: { vm: RowVM; lanes: number; link?: "on" | "faint" | "hover"; reach?: boolean }) {
+function RowGraph({ root, vm, lanes, link, reach }: { root: string; vm: RowVM; lanes: number; link?: "on" | "faint" | "hover"; reach?: boolean }) {
   const { input, output, circle, circleColor } = vm;
   const paths: { d: string; color: string }[] = [];
   const line = (x: number, y1: number, y2: number, color: string) => paths.push({ d: `M ${x} ${y1} V ${y2}`, color });
@@ -253,7 +221,7 @@ function RowGraph({ vm, lanes, link, reach }: { vm: RowVM; lanes: number; link?:
         // A merge stays a plain dot, so the eye can tell where branches joined from who wrote what.
         : vm.commit.parents.length > 1
           ? <circle cx={W * (circle + 1)} cy={H / 2} r={3.5} fill={circleColor} stroke="var(--bg-card)" strokeWidth={1} />
-          : <AvatarNode x={W * (circle + 1)} ring={circleColor} name={vm.commit.author} email={vm.commit.email} />}
+          : <AvatarNode root={root} x={W * (circle + 1)} y={H / 2} ring={circleColor} name={vm.commit.author} email={vm.commit.email} />}
     </svg>
   );
 }
@@ -1460,7 +1428,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
                       </span>
                     )}
                   </div>
-                  <RowGraph vm={vm} lanes={maxLanes}
+                  <RowGraph root={root} vm={vm} lanes={maxLanes}
                     link={groups.length ? "on" : ghostName ? (isOpen ? "faint" : "hover") : undefined} reach={isOpen} />
                 </div>
                 {/* The message, date and SHA share one box so the selection's tint runs to the row's

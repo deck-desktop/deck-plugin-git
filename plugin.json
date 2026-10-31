@@ -5,7 +5,7 @@
   "icon": "GitBranch",
   "color": "#f97316",
   "version": "1.6.0",
-  "minDeck": "1.13.0",
+  "minDeck": "1.13.1",
   "permissions": [
     "files",
     "processes",

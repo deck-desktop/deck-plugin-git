@@ -4,7 +4,7 @@
 // UI draws both the same way (prs.ts reads both hosts' JSON into one shape).
 import { useEffect, useState } from "react";
 import {
-  ghRun, ghPrThreads, ghPrLineComment, ghThreadReply, ghThreadResolve, glabRun, glabApi,
+  ghRun, ghAvatar, ghPrThreads, ghPrLineComment, ghThreadReply, ghThreadResolve, glabRun, glabApi,
 } from "../shim/bridge.js";
 import { gitRemotes, gitRemoteUrl, gitFetchPr } from "./git";
 import {
@@ -47,6 +47,8 @@ export interface PrHost {
   meta(): Promise<RepoMeta>;
   /** Returns its address. */
   create(p: NewPr): Promise<string>;
+  /** The profile picture's address of whoever commits as `email` on this host, or null. */
+  picture(email: string): Promise<string | null>;
 }
 
 /** A host's error as something to read. A missing CLI becomes something to act on. */
@@ -95,6 +97,8 @@ function github(root: string): PrHost {
         ...(p.draft ? ["--draft"] : []), ...p.reviewers.flatMap((r) => ["--reviewer", r]), ...p.labels.flatMap((l) => ["--label", l])]);
       return out.trim().split(/\s+/).pop() ?? "";
     },
+    // GitHub takes an email as a commit's author, so one commit of theirs names their account.
+    picture: async (email) => (await ghAvatar(root, email)).trim() || null,
   };
 }
 
@@ -177,6 +181,12 @@ function gitlab(root: string): PrHost {
         "--description", p.body.trim() || p.title, "--yes", ...(p.draft ? ["--draft"] : []),
         ...(p.reviewers.length ? ["--reviewer", p.reviewers.join(",")] : []), ...(p.labels.length ? ["--label", p.labels.join(",")] : [])]);
       return /https?:\/\/\S+/.exec(out)?.[0] ?? "";
+    },
+    // GitLab answers for anyone with Gravatar's picture, its identicon when there is none; asking
+    // for a 404 instead lets the initials show.
+    picture: async (email) => {
+      const url = String((JSON.parse(await get(`avatar?email=${encodeURIComponent(email)}&size=64`)) as { avatar_url?: string }).avatar_url ?? "");
+      return url ? url.replace(/([?&]d=)[^&]*/, "$1404") : null;
     },
   };
 }

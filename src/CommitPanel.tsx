@@ -4,7 +4,8 @@
 // Split out of Editor.tsx: they own no editor state, taking a commit and callbacks.
 import { useEffect, useState } from "react";
 import { GitCompare } from "lucide-react";
-import { WORKTREE, avatarOf } from "./GitGraph";
+import { WORKTREE } from "./GitGraph";
+import { Avatar } from "./avatar";
 import { ChevronRight, List, ListTree, X, History, FileSymlink, Loader2 } from "lucide-react";
 import { fsReveal, type CommitFile, type GraphCommit } from "../shim/bridge.js";
 import { ContextMenu, FileIcon, type MenuEntry } from "../shim/ui.js";
@@ -141,7 +142,6 @@ export function CommitPanel({ view, root, busy, treeView, onToggleTree, theme, o
   const trailers = isTrailers ? last.split("\n") : [];
   const body = (isTrailers ? paras.slice(0, -1) : paras).join("\n\n").trim();
   const longMsg = body.split("\n").length > 4 || body.length > 280 || (trailers.length > 0 && !!body);
-  const avatar = view.meta && !work ? avatarOf(view.meta.author, view.meta.email) : null;
   const adds = view.files.reduce((n, f) => n + f.adds, 0);
   const dels = view.files.reduce((n, f) => n + f.dels, 0);
   return (
@@ -165,8 +165,7 @@ export function CommitPanel({ view, root, busy, treeView, onToggleTree, theme, o
       <div className="flex shrink-0 flex-col gap-2.5 px-3 pb-3">
         {work ? <div className="text-[11.5px] text-text-muted">The working tree, against HEAD.</div> : view.meta && <>
           <div className="flex min-w-0 items-center gap-2">
-            <span className="grid size-6 shrink-0 place-items-center rounded-full text-[10px] font-semibold text-white"
-              style={{ background: avatar!.color }} aria-hidden>{avatar!.initials}</span>
+            <Avatar root={root} name={view.meta.author} email={view.meta.email} className="size-6 shrink-0 rounded-full" />
             <span className="min-w-0 flex-1 truncate text-[12px] text-text-secondary" title={view.meta.email}>{view.meta.author}</span>
             <span className="shrink-0 text-[11px] text-text-muted">{view.meta.date}</span>
           </div>
