@@ -144,8 +144,8 @@ function AvatarNode({ x, ring, name, email }: { x: number; ring: string; name: s
   return (
     <g>
       <title>{email ? `${name} <${email}>` : name}</title>
-      <circle cx={x} cy={H / 2} r={7} fill={color} stroke={ring} strokeWidth={1.5} />
-      <text x={x} y={H / 2} dy="0.35em" textAnchor="middle" fontSize={6.5} fontWeight={600} fill="#fff"
+      <circle cx={x} cy={H / 2} r={10} fill={color} stroke={ring} strokeWidth={1.5} />
+      <text x={x} y={H / 2} dy="0.35em" textAnchor="middle" fontSize={8.5} fontWeight={600} fill="#fff"
         style={{ pointerEvents: "none" }}>{initials}</text>
     </g>
   );
