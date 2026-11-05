@@ -28,6 +28,7 @@ import { baseName, toolBtn, field, secondaryBtn, dangerSecondaryBtn, primaryBtn,
 import { CommitRow } from "./CommitPanel";
 import { mergeBlocker, PR_CHANGED, type PrThread, type PrRow, type PrDetail, type PrState } from "./prs";
 import { usePrHost, prError, type PrHost, type PrFilter, type Verdict } from "./prhost";
+import { ErrorText, failedDialog } from "./ErrorText";
 
 const STATE_COLOR: Record<PrState, string> = { passing: "rgb(var(--tone-green-400))", failing: "rgb(var(--tone-red-400))", pending: "rgb(var(--tone-amber-400))", none: "var(--text-muted)" };
 /** A small secondary button, for actions inside a card (reply, resolve, cancel). */
@@ -38,10 +39,7 @@ const ago = (iso: string) => {
   const s = (Date.now() - Date.parse(iso)) / 1000;
   return !isFinite(s) ? "" : s < 3600 ? `${Math.max(1, Math.round(s / 60))}m` : s < 86400 ? `${Math.round(s / 3600)}h` : `${Math.round(s / 86400)}d`;
 };
-const failWith = (onConfirm: (s: ConfirmState) => void) => (title: string, e: unknown) => onConfirm({
-  title, confirmLabel: "OK", danger: false, acknowledge: true, onConfirm: () => {},
-  body: <pre className="scroll-thin max-h-64 overflow-auto whitespace-pre-wrap font-mono text-[12px]">{prError(e)}</pre>,
-});
+const failWith = (onConfirm: (s: ConfirmState) => void, root: string) => (title: string, e: unknown) => onConfirm(failedDialog(title, e, root));
 
 /** The open pull requests, filtered: waiting on my review, mine, or all of them. */
 export function PrList({ root, selected, onOpen, onClose }: {
@@ -88,7 +86,7 @@ export function PrList({ root, selected, onOpen, onClose }: {
       </div>
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
         {(rows === null || !host) && <p className="flex items-center gap-2 px-2.5 py-2 text-[12px] text-text-muted"><Loader2 size={13} className="animate-spin" /> Loading…</p>}
-        {error && <p className="break-words px-2.5 py-2 text-[12px] leading-relaxed text-text-muted">{error}</p>}
+        {error && <div className="break-words px-2.5 py-2 text-[12px] leading-relaxed text-text-muted"><ErrorText e={error} root={root} pre={false} /></div>}
         {rows?.length === 0 && !error && (
           <p className="px-2.5 py-2 text-[12px] leading-relaxed text-text-muted">
             No open {host?.noun ?? "pull request"}s here{filter !== "all" ? " for this filter" : ""}. Create one from a branch's menu in the graph, or the PR button in its toolbar.
@@ -122,7 +120,7 @@ export function PrView({ root, remote, number, theme, onConfirm, onOpenCommit }:
   /** A commit of the PR, for the commit panel. */
   onOpenCommit?: (oid: string) => void;
 }) {
-  const fail = failWith(onConfirm);
+  const fail = failWith(onConfirm, root);
   const host = usePrHost(root);
   const [d, setD] = useState<PrDetail | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
@@ -357,7 +355,7 @@ const loadFlag = (key: string, fallback: boolean) => { try { const v = localStor
 const saveFlag = (key: string, v: boolean) => { try { localStorage.setItem(key, v ? "1" : "0"); } catch { /* private mode */ } };
 
 function PrFiles({ root, host, remote, d, theme, onConfirm }: { root: string; host: PrHost; remote: string; d: PrDetail; theme: IconTheme; onConfirm: (s: ConfirmState) => void }) {
-  const fail = failWith(onConfirm);
+  const fail = failWith(onConfirm, root);
   const [tree, setTree] = useState(() => loadFlag(TREE_KEY, true));
   // Side by side unless chosen otherwise here: a review reads old against new, and the editor's
   // inline preference is about its own diffs.
@@ -458,7 +456,7 @@ function PrFiles({ root, host, remote, d, theme, onConfirm }: { root: string; ho
   );
 
   if (!files) return <div className="flex h-full items-center justify-center text-[12.5px] text-text-muted"><Loader2 size={15} className="mr-2 animate-spin" /> Fetching the pull request…</div>;
-  if (error && !files.length) return <div className="p-4 text-[12px] leading-relaxed text-text-muted">{error}</div>;
+  if (error && !files.length) return <div className="p-4 text-[12px] leading-relaxed text-text-muted"><ErrorText e={error} root={root} pre={false} /></div>;
   return (
     <div className="flex h-full min-h-0">
       <div className="flex w-64 shrink-0 flex-col border-r border-subtle bg-panel">

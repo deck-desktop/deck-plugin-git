@@ -13,6 +13,7 @@ import { ConflictSides } from "./ConflictSides";
 import { gitStage, gitTakeSide } from "./git";
 import { GIT_CHANGED } from "./WorkPanel";
 import { accentFill, primaryBtn, secondaryBtn } from "./util";
+import { failedDialog } from "./ErrorText";
 
 /** How long after the last edit the file is written. */
 const SAVE_MS = 250;
@@ -39,7 +40,7 @@ export function ConflictView({ root, row, onConfirm, onResolved }: {
 
   const fail = (what: string) => (e: unknown) => {
     console.warn(`[git] ${what} failed`, e);
-    onConfirm({ title: `${what} failed`, confirmLabel: "OK", danger: false, acknowledge: true, onConfirm: () => {}, body: String(e).replace(/^Error:\s*/, "") });
+    onConfirm(failedDialog(`${what} failed`, e, root));
   };
   const changed = () => { window.dispatchEvent(new CustomEvent(GIT_CHANGED, { detail: root })); };
   const flush = async () => {

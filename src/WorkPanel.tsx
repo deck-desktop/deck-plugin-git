@@ -19,6 +19,7 @@ import { useEditorSettings } from "../shim/ui.js";
 import { statusColor, buildChangeTree, collectFiles, type TreeNodeOf } from "../shim/ui.js";
 import { baseName, iconBtn, dangerBtn, toolBtn, field, heading, countChip, accentFill } from "./util";
 import { decodeText } from "../shim/ui.js";
+import { failedDialog } from "./ErrorText";
 
 /** Fired on window with the repo root as detail after this panel changes the repo; the graph reloads. */
 export const GIT_CHANGED = "deck-git-changed";
@@ -114,10 +115,7 @@ export function WorkPanel({ root, polled, theme, treeView, onToggleTree, onOpenF
     return () => window.removeEventListener(GIT_CHANGED, on);
   }, [root]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const fail = (title: string, e: unknown) => onConfirm({
-    title, confirmLabel: "OK", danger: false, acknowledge: true, onConfirm: () => {},
-    body: <pre className="scroll-thin max-h-64 overflow-auto whitespace-pre-wrap font-mono text-[12px]">{String(e).replace(/^Error:\s*/, "")}</pre>,
-  });
+  const fail = (title: string, e: unknown) => onConfirm(failedDialog(title, e, root));
   /** Run a git write, then tell everyone — this panel included, through its own listener. */
   const run = async (fn: () => Promise<unknown>, failed: string) => {
     try { await fn(); } catch (e) { fail(failed, e); }
