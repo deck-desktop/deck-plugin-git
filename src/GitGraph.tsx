@@ -21,6 +21,7 @@ import { byHead, PR_CHANGED, primaryRemote, type PrInfo, type PrState } from "./
 import { usePrHost } from "./prhost";
 import { AvatarNode } from "./avatar";
 import { decodeText } from "../shim/ui.js";
+import { ErrorText, failedDialog } from "./ErrorText";
 
 /**
  * The search of every git graph on screen, the most recently used last.
@@ -448,9 +449,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
         body: (
           <>
             <p className="mb-2">The graph below is up to date with this machine, but may be missing commits from the remote.</p>
-            <pre className="scroll-thin max-h-64 overflow-auto whitespace-pre-wrap font-mono text-[12px] leading-relaxed">
-              {String(failure).replace(/^Error:\s*/, "")}
-            </pre>
+            <ErrorText e={failure} root={root} />
           </>
         ),
         confirmLabel: "OK",
@@ -515,12 +514,8 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
       onConfirm?.({
         title: failed,
         // A node, not a string: git's messages are several lines and a string body renders in a
-        // <p>, where the newlines collapse into one run-on paragraph.
-        body: (
-          <pre className="scroll-thin max-h-64 overflow-auto whitespace-pre-wrap font-mono text-[12px] leading-relaxed">
-            {String(e).replace(/^Error:\s*/, "")}
-          </pre>
-        ),
+        // <p>, where the newlines collapse into one run-on paragraph. With a button for a fix it names.
+        body: <ErrorText e={e} root={root} />,
         confirmLabel: "OK",
         danger: false,
         acknowledge: true,
@@ -1493,10 +1488,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
               body: <button onClick={() => void openExternal(url)} className="break-all text-left text-[var(--accent)] hover:underline">{url}</button>,
             });
           }}
-          onFail={(title, e) => onConfirm?.({
-            title, confirmLabel: "OK", danger: false, acknowledge: true, onConfirm: () => {},
-            body: <pre className="scroll-thin max-h-64 overflow-auto whitespace-pre-wrap font-mono text-[12px]">{String(e).replace(/^Error:\s*/, "")}</pre>,
-          })} />
+          onFail={(title, e) => onConfirm?.(failedDialog(title, e, root))} />
       )}
       {stashMenu && <ContextMenu x={stashMenu.x} y={stashMenu.y} items={stashItems()} onClose={() => setStashMenu(null)} />}
       {moreMenu && (

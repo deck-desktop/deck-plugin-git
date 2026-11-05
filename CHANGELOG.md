@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- An error says how to fix it with a button: a push or pull refused for SSH (`Permission denied
+  (publickey)`) offers **Set up an SSH key** (a terminal tab makes a key if there is none, copies it,
+  opens the host's page for a new key and tries it) and **Use HTTPS instead** (the remote's address
+  over HTTPS, signed in by Git Credential Manager). gh or glab not signed in offers **Sign in**, and
+  not installed **Install**. Asks for the terminals permission, to open that tab.
 - Double-clicking a branch in the graph checks it out, as in GitKraken: a remote branch with no
   local copy becomes a local branch tracking it.
 

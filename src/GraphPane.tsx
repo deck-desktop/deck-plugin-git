@@ -27,6 +27,7 @@ import { useResize } from "../shim/ui.js";
 import { useEditorSettings } from "../shim/ui.js";
 import { themeById, useIconThemesVersion } from "../shim/ui.js";
 import { gitCommitFiles, gitLogGraph, gitRepos, gitFileBytes, type CommitFile, type GraphCommit, type GitStatusRow } from "../shim/bridge.js";
+import { failedDialog, FIX_STARTED } from "./ErrorText";
 
 /** `media`: an image, video, audio file or font, shown through the media viewer, not as text. */
 interface Diff {
@@ -87,6 +88,8 @@ export default function GraphPane({ cwd, paneId }: { cwd: string; paneId?: strin
   // The graph asks before a reset or a branch delete, and refuses the action with no one to ask
   // through — in the editor that is the editor's dialog, here it is this one.
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+  // A fix pressed in an error (ErrorText) runs in a terminal tab or a card: the error goes.
+  useEffect(() => { const close = () => setConfirm(null); window.addEventListener(FIX_STARTED, close); return () => window.removeEventListener(FIX_STARTED, close); }, []);
   const [sideW, sideDrag] = useResize({ initial: 300, min: 160, max: 520, direction: "horizontal", invert: true });
   useEffect(() => { kept.set(place, { diff, commit, repo, file }); }, [place, diff, commit, repo, file]);
   // A commit Deck asked for (the Editor's blame hash): open its repo, unfiltered, with the commit
@@ -173,7 +176,7 @@ export default function GraphPane({ cwd, paneId }: { cwd: string; paneId?: strin
     };
     const fail = (what: string) => (e: unknown) => {
       console.warn(`[git] ${what} failed`, e);
-      setConfirm({ title: `${what} failed`, confirmLabel: "OK", danger: false, acknowledge: true, onConfirm: () => {}, body: String(e).replace(/^Error:\s*/, "") });
+      setConfirm(failedDialog(`${what} failed`, e, repo));
     };
     // A change the other way round: the left side's lines laid over the right side's.
     const flip = (c: Parameters<HunkAction["run"]>[0]) => ({
