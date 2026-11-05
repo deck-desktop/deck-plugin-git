@@ -682,21 +682,18 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
    * The current branch is deliberately sparse: you cannot merge a branch into itself, and git
    * refuses to delete the branch you are on, so offering either would only produce an error.
    */
+  /** A local branch checked out, or a remote one as the local branch tracking it (created if need be). */
+  const checkout = (p: ParsedRef) => void act(() => (p.kind === "remote" ? gitCheckoutTrack : gitCheckout)(root, p.label), "Checkout failed.", (b) => ({ label: "checkout", run: back(b) }));
   const refItems = (p: ParsedRef): MenuEntry[] => {
     const remote = primaryRemote(remotes);
     const rows: MenuEntry[] = [];
 
     // Switching branch asks nothing: git refuses on its own when local changes would be
     // overwritten, and that refusal is reported like any other failure.
-    if (p.kind === "local" && !p.current) {
-      rows.push({ label: "Check out", icon: LogIn, onClick: () => void act(() => gitCheckout(root, p.label), "Checkout failed.", (b) => ({ label: "checkout", run: back(b) })) });
-    }
+    if (p.kind === "local" && !p.current) rows.push({ label: "Check out", icon: LogIn, onClick: () => checkout(p) });
     if (p.kind === "remote") {
-      rows.push({
-        label: "Check out as local branch", icon: LogIn,
-        subLabel: "Creates it tracking this remote branch, or switches to it if it exists",
-        onClick: () => void act(() => gitCheckoutTrack(root, p.label), "Checkout failed.", (b) => ({ label: "checkout", run: back(b) })),
-      });
+      rows.push({ label: "Check out as local branch", icon: LogIn, onClick: () => checkout(p),
+        subLabel: "Creates it tracking this remote branch, or switches to it if it exists" });
     }
 
     if (!p.current && (p.kind === "local" || p.kind === "remote")) {
@@ -829,7 +826,8 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
 
   /**
    * One pill in the ref column: a branch (local and remote together), a tag, or HEAD. Right-click
-   * opens what can be done with it (on the cloud, the remote copy's); a click selects the row.
+   * opens what can be done with it (on the cloud, the remote copy's); a click selects the row, and
+   * a double-click on a branch checks it out (its local copy, else the remote's as a new local one).
    *
    * `ghost` is the faded label on a commit with no ref of its own, naming the branch it is on.
    */
@@ -854,6 +852,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
           setDragWin(e.currentTarget.ownerDocument.defaultView ?? window);
         }}
         onClick={(e) => { if (suppressClick.current) e.stopPropagation(); }} onContextMenu={openRef(primary)}
+        onDoubleClick={(e) => { e.stopPropagation(); if (!ghost && !g.current && isBranch(g)) checkout(g.local ?? g.remotes[0]); }}
         title={ghost ? `On ${g.name}` : [g.local?.label, ...g.remotes.map((r) => r.label), g.tag && `tag ${g.tag.label}`].filter(Boolean).join(" · ")}
         className={"flex h-[18px] min-w-0 shrink select-none items-center gap-1 rounded px-1.5 text-[11px] font-medium text-text-primary "
           + (ghost ? "opacity-50" : "cursor-pointer hover:brightness-125")}

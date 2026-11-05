@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Double-clicking a branch in the graph checks it out, as in GitKraken: a remote branch with no
+  local copy becomes a local branch tracking it.
+
 ## 1.7.0 (2026-10-31)
 
 - Each commit shows its author's profile picture from GitHub or GitLab, and their initials when
