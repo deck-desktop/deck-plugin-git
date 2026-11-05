@@ -18,7 +18,8 @@ a pane. Open it from the **+** beside your tabs and choose **Git**.
   the merge, rebase or cherry-pick, and turns green when nothing is left to resolve.
 - **Branches, tags, commits and stashes** from their right-click menus: check out, create, rename,
   push, delete, merge (merge commit, fast-forward or squash), rebase, reset, cherry-pick, revert,
-  stash with or without untracked files, apply, pop, drop. Drag one branch onto another to merge
+  stash with or without untracked files, apply, pop, drop. Double-click a branch to check it out
+  (a remote one as a new local branch tracking it). Drag one branch onto another to merge
   or rebase it.
 - **Undo** (Ctrl+Z) takes back the last checkout, merge, rebase, reset, commit or stash made here.
 - **File history**: one file's commits, following renames.
