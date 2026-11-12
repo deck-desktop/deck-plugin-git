@@ -21,6 +21,8 @@ import { MediaDiff, mediaKind } from "../shim/ui.js";
 import { ConflictView } from "./ConflictView";
 import { baseName, toolBtn } from "./util";
 import { RepoSelect, RepoTabs, useRepoList, useRepoTabs } from "./RepoTabs";
+import { projectFolders, uniqueRepos } from "./folders";
+import { useLayout } from "../shim/terminals.js";
 import { FileIcon } from "../shim/ui.js";
 import { ConfirmDialog, type ConfirmState } from "../shim/ui.js";
 import { useResize } from "../shim/ui.js";
@@ -67,11 +69,16 @@ export default function GraphPane({ cwd, paneId }: { cwd: string; paneId?: strin
   // graph works on a repo's top level, and a folder with more than one gets a picker.
   const [repos, setRepos] = useState<string[] | null>(null);
   const [repo, setRepo] = useState(k?.repo ?? "");
+  // Every folder of the project (folders.ts): a project of several shows all their repos, its own first.
+  useLayout(); // the project's folders can change while the pane is open
+  const folders = projectFolders(cwd).join("|");
   useEffect(() => {
-    void gitRepos(cwd)
-      .then((r) => { setRepos(r); setRepo((cur) => (r.includes(cur) ? cur : r[0] ?? "")); })
-      .catch(() => setRepos([]));
-  }, [cwd]);
+    void Promise.all(folders.split("|").map((f) => gitRepos(f).catch(() => [] as string[])))
+      .then((lists) => {
+        const r = uniqueRepos(lists);
+        setRepos(r); setRepo((cur) => (r.includes(cur) ? cur : r[0] ?? ""));
+      });
+  }, [folders]);
   const pickRepo = (r: string) => { setRepo(r); setCommit(null); setDiff(null); setPr(null); setFile(null); };
   const repoTabs = useRepoTabs();
   // The repos in the order you dragged the tabs into, less the tabs you closed, for the tabs; the
