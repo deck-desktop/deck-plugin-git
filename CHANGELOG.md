@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.0 (2026-11-12)
+
+- In a project with several folders (Deck 1.17.3), the graph offers the repositories of every folder.
+
 ## 1.8.0 (2026-11-05)
 
 - An error says how to fix it with a button: a push or pull refused for SSH (`Permission denied
