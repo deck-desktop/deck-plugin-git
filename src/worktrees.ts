@@ -3,9 +3,9 @@
 // and every 15s while it is on screen, as an agent working there changes it without telling anyone.
 import { useEffect, useState } from "react";
 import { gitRun } from "../shim/bridge.js";
-import { parseHomes, type Home } from "./worktreehomes";
+import { parseHomes, type BranchHome } from "./worktreehomes";
 
-export interface BranchHome extends Home { changed: number }
+export { OTHER_WORK, isOtherWork, withWorktreeRows, type BranchHome } from "./worktreehomes";
 
 const same = (a: Map<string, BranchHome>, b: Map<string, BranchHome>) =>
   a.size === b.size && [...b].every(([k, v]) => { const o = a.get(k); return o && o.path === v.path && o.changed === v.changed; });

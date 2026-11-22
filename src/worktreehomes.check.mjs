@@ -16,4 +16,18 @@ assert.deepEqual(o.parseHomes(text), [{ branch: "fix/login", path: "D:/code/deck
   "the repo's own checkout, a detached one and a stale one are not homes");
 assert.deepEqual(o.parseHomes(""), []);
 
+// A row of uncommitted changes above each busy worktree branch's tip, its parent that tip.
+const c = (hash, refs = []) => ({ hash, parents: [], author: "", email: "", date: "", subject: hash, body: "", refs });
+const log = [c("a", ["feature/x"]), c("b", ["HEAD -> main"]), c("c", ["feature/y"])];
+const homes = new Map([
+  ["feature/x", { branch: "feature/x", path: "D:/r.x", folder: "r.x", changed: 2 }],
+  ["feature/y", { branch: "feature/y", path: "D:/r.y", folder: "r.y", changed: 0 }],
+  ["gone", { branch: "gone", path: "D:/r.g", folder: "r.g", changed: 5 }],
+]);
+const rows = o.withWorktreeRows(log, homes);
+assert.deepEqual(rows.map((r) => r.hash), ["worktree:D:/r.x", "a", "b", "c"], "only a branch with changes, and only one in the log");
+assert.deepEqual(rows[0].parents, ["a"]);
+assert.equal(rows[0].subject, "Uncommitted changes · 2 files in r.x");
+assert.ok(o.isOtherWork(rows[0].hash) && !o.isOtherWork("worktree"));
+
 console.log("worktreehomes.check.mjs: all assertions passed");

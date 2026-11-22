@@ -23,7 +23,7 @@ import { AvatarNode } from "./avatar";
 import { decodeText } from "../shim/ui.js";
 import { ErrorText, failedDialog } from "./ErrorText";
 import { groupRefs, isBranch, parseRef, type ParsedRef, type RefGroup } from "./refs";
-import { useWorktreeHomes } from "./worktrees";
+import { useWorktreeHomes, withWorktreeRows, isOtherWork } from "./worktrees";
 import { applyDtCommand } from "../shim/terminals.js";
 
 /**
@@ -219,8 +219,8 @@ function RowGraph({ root, vm, lanes, link, reach }: { root: string; vm: RowVM; l
       {/* The selected commit: a line from its node out to the message, which picks it up. */}
       {reach && <path d={`M ${W * (circle + 1)} ${H / 2} H ${Math.max(lanes, 1) * W + W}`} fill="none" stroke={circleColor} strokeWidth={1.5} />}
       {paths.map((p, i) => <path key={i} d={p.d} fill="none" stroke={p.color} strokeWidth={1.5} />)}
-      {vm.commit.hash === WORKTREE
-        // Hollow and dotted: work that is not a commit yet.
+      {vm.commit.hash === WORKTREE || isOtherWork(vm.commit.hash)
+        // Hollow and dotted: work that is not a commit yet (here, or in another worktree).
         ? <circle cx={W * (circle + 1)} cy={H / 2} r={6} fill="var(--bg-card)" stroke={circleColor} strokeWidth={1.5} strokeDasharray="2.5 2" />
         // A merge stays a plain dot, so the eye can tell where branches joined from who wrote what.
         : vm.commit.parents.length > 1
@@ -337,7 +337,8 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
   // open under the row as well, which repeated the sidebar and pushed the rest of the log away.
   const select = (c: GraphCommit) => {
     setExpanded(c.hash);
-    onOpenCommit?.(c, c.hash === WORKTREE ? changes : undefined, commits);
+    // Another worktree's changes are in its own folder: the files panel has them under its branch.
+    if (!isOtherWork(c.hash)) onOpenCommit?.(c, c.hash === WORKTREE ? changes : undefined, commits);
   };
 
   // Re-read the log from disk. Keeps the selected row and the filter.
@@ -1037,7 +1038,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
     const withWork = head && hasWork
       ? [{ hash: WORKTREE, parents: [head.hash], author: "", email: "", date: "", subject: "Uncommitted changes", body: "", refs: [] }, ...shown]
       : shown;
-    const vms = buildViewModels(withWork); // lanes computed from the FULL set
+    const vms = buildViewModels(withWorktreeRows(withWork, homes)); // lanes computed from the FULL set
     const maxLanes = vms.reduce((m, v) => Math.max(m, v.input.length, v.output.length), 1);
     // The branch each commit is on, for the ghost label: a branch's name runs down its first-parent
     // line until another branch claims it. The log is in topological order, so a commit's children
@@ -1063,7 +1064,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
       if (c.parents[0] && !onBranch.has(c.parents[0])) onBranch.set(c.parents[0], name);
     }
     return { head, vms, maxLanes, inHead, onBranch };
-  }, [commits, rel, hasWork]);
+  }, [commits, rel, hasWork, homes]);
   const listRef = useRef<HTMLDivElement>(null);
   // Font size, as a zoom on each row: the lanes, avatars, pills, dates and text are all drawn at
   // the 13px design size, and zooming the row scales every one of them together, so nothing is
@@ -1113,7 +1114,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
   const q = query.trim().toLowerCase();
   // Search marks the matches and dims the rest rather than removing rows: taking the rows out
   // took the lanes with them, and a match without its branch around it says little.
-  const isMatch = (c: GraphCommit) => c.hash !== WORKTREE
+  const isMatch = (c: GraphCommit) => c.hash !== WORKTREE && !isOtherWork(c.hash)
     && (c.subject.toLowerCase().includes(q) || c.author.toLowerCase().includes(q) || c.hash.startsWith(q));
   // eslint-disable-next-line react-hooks/exhaustive-deps -- isMatch depends only on q
   const matches = useMemo(() => q ? vms.filter((v) => isMatch(v.commit)) : [], [vms, q]);
@@ -1353,13 +1354,13 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
         <div style={{ height: first * RH }} />
         {vms.slice(first, last).map((vm) => {
           const isOpen = expanded === vm.commit.hash;
-          const isWork = vm.commit.hash === WORKTREE;
+          const isWork = vm.commit.hash === WORKTREE, otherWork = isOtherWork(vm.commit.hash);
           const groups = groupRefs(vm.commit.refs, remoteNames);
           const ghostName = isWork ? undefined : onBranch.get(vm.commit.hash);
           return (
             <div key={vm.commit.hash} style={S === 1 ? undefined : { zoom: S }}>
               <div onClick={() => select(vm.commit)} data-hash={vm.commit.hash}
-                onContextMenu={(e) => { e.preventDefault(); if (!isWork) setMenu({ x: e.clientX, y: e.clientY, commit: vm.commit }); }}
+                onContextMenu={(e) => { e.preventDefault(); if (!isWork && !otherWork) setMenu({ x: e.clientX, y: e.clientY, commit: vm.commit }); }}
                 className={"group/row flex h-[28px] cursor-pointer items-center gap-2 px-2 transition-opacity "
                   + (isOpen ? "" : "hover:bg-white/5 ") + (dimmed(vm.commit) ? "opacity-35" : "")}
                 // Selected: a band in the commit's lane colour, stronger behind the message. The
@@ -1402,13 +1403,13 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
                   <div className="flex min-w-0 flex-1 items-center gap-1.5">
                     {isWork
                       ? <span className="truncate italic text-text-secondary">Uncommitted changes · {changes.length} file{changes.length === 1 ? "" : "s"}</span>
-                      : <span className={"truncate " + (isOpen || !head || inHead.has(vm.commit.hash) ? "text-text-primary" : "text-text-muted")}>{vm.commit.subject}</span>}
+                      : <span className={"truncate " + (otherWork ? "italic text-text-secondary" : isOpen || !head || inHead.has(vm.commit.hash) ? "text-text-primary" : "text-text-muted")}>{vm.commit.subject}</span>}
                   </div>
                   {showDate && <span className={"w-20 shrink-0 text-right text-[11px] " + (isOpen ? "text-text-primary" : "text-text-muted")}>{vm.commit.date}</span>}
                   {showSha && <span className={"w-16 shrink-0 text-right font-mono text-[11px] " + (isOpen ? "text-text-primary" : "text-text-muted")}>
                     {copied === vm.commit.hash
                       ? <span className="inline-flex items-center gap-1" style={{ color: "rgb(var(--tone-green-400))" }}><Check size={10} /> copied</span>
-                      : isWork ? "" : vm.commit.hash.slice(0, 7)}
+                      : isWork || otherWork ? "" : vm.commit.hash.slice(0, 7)}
                   </span>}
                 </div>
               </div>
