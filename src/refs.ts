@@ -6,13 +6,18 @@
 export type RefKind = "local" | "remote" | "tag" | "stash" | "head";
 export interface ParsedRef { kind: RefKind; label: string; color: string; current: boolean }
 
-export function parseRef(ref: string): ParsedRef {
+/**
+ * `remotes`: the repo's remote names, once known. A ref is a remote's only when it starts with one
+ * (`origin/main`); without them, any name with a slash was taken for one, so a local `feature/x`
+ * showed a cloud and lost what a local branch has (its worktree folder, Check out).
+ */
+export function parseRef(ref: string, remotes?: readonly string[]): ParsedRef {
   // "HEAD -> main" is the checked-out branch; the arrow is git's, not part of the name.
   if (ref.startsWith("HEAD -> ")) return { kind: "local", label: ref.slice(8), color: "#3794ff", current: true };
   if (ref === "HEAD") return { kind: "head", label: "HEAD", color: "#3794ff", current: true };
   if (ref.startsWith("tag: ")) return { kind: "tag", label: ref.slice(5), color: "#e2c08d", current: false };
   if (ref.startsWith("stash@")) return { kind: "stash", label: ref, color: "#4ec9b0", current: false };
-  if (ref.includes("/")) return { kind: "remote", label: ref, color: "#c586c0", current: false };
+  if (ref.includes("/") && (!remotes || remotes.some((r) => ref.startsWith(`${r}/`)))) return { kind: "remote", label: ref, color: "#c586c0", current: false };
   return { kind: "local", label: ref, color: "#3794ff", current: false };
 }
 
@@ -22,10 +27,10 @@ export function parseRef(ref: string): ParsedRef {
  * tags. `origin/HEAD` is dropped — a pointer to the default branch, not a branch.
  */
 export interface RefGroup { name: string; local?: ParsedRef; remotes: ParsedRef[]; tag?: ParsedRef; other?: ParsedRef; current: boolean }
-export function groupRefs(refs: string[]): RefGroup[] {
+export function groupRefs(refs: string[], remotes?: readonly string[]): RefGroup[] {
   const groups = new Map<string, RefGroup>();
   for (const raw of refs) {
-    const p = parseRef(raw);
+    const p = parseRef(raw, remotes);
     if (p.kind === "remote" && p.label.endsWith("/HEAD")) continue;
     const key = p.kind === "local" ? p.label
       : p.kind === "remote" ? p.label.slice(p.label.indexOf("/") + 1)

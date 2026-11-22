@@ -559,7 +559,9 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
   // The refs folded into a row's "+N", each with its own actions as a submenu.
   const [moreMenu, setMoreMenu] = useState<{ x: number; y: number; groups: RefGroup[] } | null>(null);
   const [remotes, setRemotes] = useState<string[]>([]);
-  useEffect(() => { void gitRemotes(root).then(setRemotes).catch(() => setRemotes([])); }, [root]);
+  // Until they are known the pills guess remotes by a slash (refs.ts parseRef); then by name.
+  const [remoteNames, setRemoteNames] = useState<string[] | undefined>(undefined);
+  useEffect(() => { void gitRemotes(root).catch(() => [] as string[]).then((r) => { setRemotes(r); setRemoteNames(r); }); }, [root]);
 
   // A merge, revert or cherry-pick that hits a conflict stops half-way and stays that way. Until
   // it is finished or abandoned every later git command fails, and nothing else in the UI says
@@ -621,7 +623,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
       setTimeout(() => { suppressClick.current = false; }, 0);
       const name = (dragWin.document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-ref-group]") as HTMLElement | null)?.dataset.refGroup;
       const to = name && name !== d.g.name
-        ? commitsRef.current.flatMap((c) => groupRefs(c.refs)).find((g) => g.name === name && isBranch(g))
+        ? commitsRef.current.flatMap((c) => groupRefs(c.refs, remoteNames)).find((g) => g.name === name && isBranch(g))
         : undefined;
       if (to) setDropMenu({ x: e.clientX, y: e.clientY, from: d.g, to });
     };
@@ -1055,7 +1057,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
     }
     const onBranch = new Map<string, string>();
     for (const c of shown) {
-      const name = groupRefs(c.refs).find(isBranch)?.name ?? onBranch.get(c.hash);
+      const name = groupRefs(c.refs, remoteNames).find(isBranch)?.name ?? onBranch.get(c.hash);
       if (!name) continue;
       onBranch.set(c.hash, name);
       if (c.parents[0] && !onBranch.has(c.parents[0])) onBranch.set(c.parents[0], name);
@@ -1352,7 +1354,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
         {vms.slice(first, last).map((vm) => {
           const isOpen = expanded === vm.commit.hash;
           const isWork = vm.commit.hash === WORKTREE;
-          const groups = groupRefs(vm.commit.refs);
+          const groups = groupRefs(vm.commit.refs, remoteNames);
           const ghostName = isWork ? undefined : onBranch.get(vm.commit.hash);
           return (
             <div key={vm.commit.hash} style={S === 1 ? undefined : { zoom: S }}>
