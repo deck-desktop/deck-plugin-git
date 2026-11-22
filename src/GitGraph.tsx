@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Loader2, RefreshCw, GitBranch, Copy, Undo2, GitCommitHorizontal, Tag, RotateCcw, Check, Filter, GitMerge, Trash2, AlertTriangle,
-  ArrowDownToLine, ArrowUpFromLine, GitBranchPlus, Archive, ArchiveRestore, LogIn, Pencil, Search, X, Laptop, Cloud, GitPullRequest, History,
+  ArrowDownToLine, ArrowUpFromLine, GitBranchPlus, Archive, ArchiveRestore, LogIn, Pencil, Search, X, Laptop, Cloud, GitPullRequest, History, FolderGit2,
 } from "lucide-react";
 import {
   gitLogGraph, gitRefs, openExternal, gitStatus, gitFileBytes, fsReadBytes, type GraphCommit, type CommitFile, type GitRef,
@@ -22,6 +22,9 @@ import { usePrHost } from "./prhost";
 import { AvatarNode } from "./avatar";
 import { decodeText } from "../shim/ui.js";
 import { ErrorText, failedDialog } from "./ErrorText";
+import { groupRefs, isBranch, parseRef, type ParsedRef, type RefGroup } from "./refs";
+import { useWorktreeHomes, withWorktreeRows, isOtherWork } from "./worktrees";
+import { applyDtCommand } from "../shim/terminals.js";
 
 /**
  * The search of every git graph on screen, the most recently used last.
@@ -216,8 +219,8 @@ function RowGraph({ root, vm, lanes, link, reach }: { root: string; vm: RowVM; l
       {/* The selected commit: a line from its node out to the message, which picks it up. */}
       {reach && <path d={`M ${W * (circle + 1)} ${H / 2} H ${Math.max(lanes, 1) * W + W}`} fill="none" stroke={circleColor} strokeWidth={1.5} />}
       {paths.map((p, i) => <path key={i} d={p.d} fill="none" stroke={p.color} strokeWidth={1.5} />)}
-      {vm.commit.hash === WORKTREE
-        // Hollow and dotted: work that is not a commit yet.
+      {vm.commit.hash === WORKTREE || isOtherWork(vm.commit.hash)
+        // Hollow and dotted: work that is not a commit yet (here, or in another worktree).
         ? <circle cx={W * (circle + 1)} cy={H / 2} r={6} fill="var(--bg-card)" stroke={circleColor} strokeWidth={1.5} strokeDasharray="2.5 2" />
         // A merge stays a plain dot, so the eye can tell where branches joined from who wrote what.
         : vm.commit.parents.length > 1
@@ -227,51 +230,6 @@ function RowGraph({ root, vm, lanes, link, reach }: { root: string; vm: RowVM; l
   );
 }
 
-// Classify a decoration ref → a small colored pill.
-/** What a decoration entry actually is, so a menu can offer the right things for it. */
-type RefKind = "local" | "remote" | "tag" | "stash" | "head";
-interface ParsedRef { kind: RefKind; label: string; color: string; current: boolean }
-
-function parseRef(ref: string): ParsedRef {
-  // "HEAD -> main" is the checked-out branch; the arrow is git's, not part of the name.
-  if (ref.startsWith("HEAD -> ")) return { kind: "local", label: ref.slice(8), color: "#3794ff", current: true };
-  if (ref === "HEAD") return { kind: "head", label: "HEAD", color: "#3794ff", current: true };
-  if (ref.startsWith("tag: ")) return { kind: "tag", label: ref.slice(5), color: "#e2c08d", current: false };
-  if (ref.startsWith("stash@")) return { kind: "stash", label: ref, color: "#4ec9b0", current: false };
-  if (ref.includes("/")) return { kind: "remote", label: ref, color: "#c586c0", current: false };
-  return { kind: "local", label: ref, color: "#3794ff", current: false };
-}
-
-/**
- * A commit's refs as GitKraken shows them: a local branch and its remote copies are one pill
- * ("main" with a laptop and a cloud) rather than two. Current branch first, then local, remote,
- * tags. `origin/HEAD` is dropped — a pointer to the default branch, not a branch.
- */
-interface RefGroup { name: string; local?: ParsedRef; remotes: ParsedRef[]; tag?: ParsedRef; other?: ParsedRef; current: boolean }
-function groupRefs(refs: string[]): RefGroup[] {
-  const groups = new Map<string, RefGroup>();
-  for (const raw of refs) {
-    const p = parseRef(raw);
-    if (p.kind === "remote" && p.label.endsWith("/HEAD")) continue;
-    const key = p.kind === "local" ? p.label
-      : p.kind === "remote" ? p.label.slice(p.label.indexOf("/") + 1)
-      : `${p.kind}:${p.label}`;
-    // A remote's copy alone is named like the branch only for origin: with a second remote the
-    // bare name was ambiguous — the testbed showed two pills reading "main" on different commits.
-    const g = groups.get(key) ?? { name: p.kind === "remote" && !p.label.startsWith("origin/") ? p.label : key, remotes: [], current: false };
-    if (p.kind === "local") g.local = p;
-    else if (p.kind === "remote") g.remotes.push(p);
-    else if (p.kind === "tag") g.tag = p;
-    else g.other = p;
-    g.current ||= p.current;
-    groups.set(key, g);
-  }
-  // origin's copy first: the cloud opens it, and it is the one a PR is about.
-  for (const g of groups.values()) g.remotes.sort((a, b) => Number(b.label.startsWith("origin/")) - Number(a.label.startsWith("origin/")));
-  const rank = (g: RefGroup) => (g.current ? 0 : g.local ? 1 : g.remotes.length ? 2 : g.tag ? 3 : 4);
-  return [...groups.values()].sort((a, b) => rank(a) - rank(b));
-}
-const isBranch = (g: RefGroup) => !!(g.local || g.remotes.length);
 
 // Persist graph state across tab switches (the component unmounts when you leave the
 // tab). Keyed by workspace root so switching workspaces starts fresh.
@@ -601,7 +559,9 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
   // The refs folded into a row's "+N", each with its own actions as a submenu.
   const [moreMenu, setMoreMenu] = useState<{ x: number; y: number; groups: RefGroup[] } | null>(null);
   const [remotes, setRemotes] = useState<string[]>([]);
-  useEffect(() => { void gitRemotes(root).then(setRemotes).catch(() => setRemotes([])); }, [root]);
+  // Until they are known the pills guess remotes by a slash (refs.ts parseRef); then by name.
+  const [remoteNames, setRemoteNames] = useState<string[] | undefined>(undefined);
+  useEffect(() => { void gitRemotes(root).catch(() => [] as string[]).then((r) => { setRemotes(r); setRemoteNames(r); }); }, [root]);
 
   // A merge, revert or cherry-pick that hits a conflict stops half-way and stays that way. Until
   // it is finished or abandoned every later git command fails, and nothing else in the UI says
@@ -616,6 +576,9 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
   // Open pull requests (or GitLab merge requests) by head branch, for the pills' icons. Empty
   // without the host's CLI.
   const prHost = usePrHost(root);
+  // Branches checked out in other worktrees (an agent each, from Deck's "on its own branch"): a
+  // folder on their pill, and a terminal there instead of a checkout git would refuse.
+  const homes = useWorktreeHomes(root, commits);
   const prNoun = prHost?.noun ?? "pull request";
   const [prs, setPrs] = useState<Map<string, PrInfo>>(new Map());
   const loadPrs = () => {
@@ -660,7 +623,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
       setTimeout(() => { suppressClick.current = false; }, 0);
       const name = (dragWin.document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-ref-group]") as HTMLElement | null)?.dataset.refGroup;
       const to = name && name !== d.g.name
-        ? commitsRef.current.flatMap((c) => groupRefs(c.refs)).find((g) => g.name === name && isBranch(g))
+        ? commitsRef.current.flatMap((c) => groupRefs(c.refs, remoteNames)).find((g) => g.name === name && isBranch(g))
         : undefined;
       if (to) setDropMenu({ x: e.clientX, y: e.clientY, from: d.g, to });
     };
@@ -685,7 +648,9 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
 
     // Switching branch asks nothing: git refuses on its own when local changes would be
     // overwritten, and that refusal is reported like any other failure.
-    if (p.kind === "local" && !p.current) rows.push({ label: "Check out", icon: LogIn, onClick: () => checkout(p) });
+    const home = p.kind === "local" ? homes.get(p.label) : undefined;
+    if (home) rows.push({ label: "Open a terminal there", subLabel: `It is checked out in ${home.folder}`, icon: FolderGit2, onClick: () => applyDtCommand("new-tab", { title: p.label, cwd: home.path }) });
+    else if (p.kind === "local" && !p.current) rows.push({ label: "Check out", icon: LogIn, onClick: () => checkout(p) });
     if (p.kind === "remote") {
       rows.push({ label: "Check out as local branch", icon: LogIn, onClick: () => checkout(p),
         subLabel: "Creates it tracking this remote branch, or switches to it if it exists" });
@@ -838,6 +803,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
     const primary = g.local ?? g.remotes[0] ?? g.tag ?? g.other;
     const tint = g.tag && !isBranch(g) ? g.tag.color : color;
     const pr = !ghost && isBranch(g) ? prs.get(g.name) : undefined;
+    const home = !ghost && g.local ? homes.get(g.local.label) : undefined;
     return (
       <span
         data-ref-group={!ghost && isBranch(g) ? g.name : undefined}
@@ -848,14 +814,17 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
         }}
         onClick={(e) => { if (suppressClick.current) e.stopPropagation(); }} onContextMenu={openRef(primary)}
         onDoubleClick={(e) => { e.stopPropagation(); if (!ghost && !g.current && isBranch(g)) checkout(g.local ?? g.remotes[0]); }}
-        title={ghost ? `On ${g.name}` : [g.local?.label, ...g.remotes.map((r) => r.label), g.tag && `tag ${g.tag.label}`].filter(Boolean).join(" · ")}
+        title={ghost ? `On ${g.name}` : [g.local?.label, ...g.remotes.map((r) => r.label), g.tag && `tag ${g.tag.label}`,
+          home && `checked out in ${home.folder}${home.changed ? `, ${home.changed} uncommitted` : ""}`].filter(Boolean).join(" · ")}
         className={"flex h-[18px] min-w-0 shrink select-none items-center gap-1 rounded px-1.5 text-[11px] font-medium text-text-primary "
           + (ghost ? "opacity-50" : "cursor-pointer hover:brightness-125")}
         style={{ background: tint + "40" }}>
         {g.current && <Check size={11} className="shrink-0" />}
         {g.tag && !isBranch(g) && <Tag size={10} className="shrink-0" />}
         <span className="truncate">{g.name}</span>
-        {g.local && <Laptop size={11} className="shrink-0 opacity-70" />}
+        {g.local && (home
+          ? <FolderGit2 size={11} className="shrink-0 opacity-80" />
+          : <Laptop size={11} className="shrink-0 opacity-70" />)}
         {g.remotes.length > 0 && (
           <Cloud size={11} className="shrink-0 opacity-70 hover:opacity-100"
             onContextMenu={openRef(g.remotes[0])} />
@@ -1068,7 +1037,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
     const withWork = head && hasWork
       ? [{ hash: WORKTREE, parents: [head.hash], author: "", email: "", date: "", subject: "Uncommitted changes", body: "", refs: [] }, ...shown]
       : shown;
-    const vms = buildViewModels(withWork); // lanes computed from the FULL set
+    const vms = buildViewModels(withWorktreeRows(withWork, homes)); // lanes computed from the FULL set
     const maxLanes = vms.reduce((m, v) => Math.max(m, v.input.length, v.output.length), 1);
     // The branch each commit is on, for the ghost label: a branch's name runs down its first-parent
     // line until another branch claims it. The log is in topological order, so a commit's children
@@ -1088,13 +1057,13 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
     }
     const onBranch = new Map<string, string>();
     for (const c of shown) {
-      const name = groupRefs(c.refs).find(isBranch)?.name ?? onBranch.get(c.hash);
+      const name = groupRefs(c.refs, remoteNames).find(isBranch)?.name ?? onBranch.get(c.hash);
       if (!name) continue;
       onBranch.set(c.hash, name);
       if (c.parents[0] && !onBranch.has(c.parents[0])) onBranch.set(c.parents[0], name);
     }
     return { head, vms, maxLanes, inHead, onBranch };
-  }, [commits, rel, hasWork]);
+  }, [commits, rel, hasWork, homes]);
   const listRef = useRef<HTMLDivElement>(null);
   // Font size, as a zoom on each row: the lanes, avatars, pills, dates and text are all drawn at
   // the 13px design size, and zooming the row scales every one of them together, so nothing is
@@ -1144,7 +1113,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
   const q = query.trim().toLowerCase();
   // Search marks the matches and dims the rest rather than removing rows: taking the rows out
   // took the lanes with them, and a match without its branch around it says little.
-  const isMatch = (c: GraphCommit) => c.hash !== WORKTREE
+  const isMatch = (c: GraphCommit) => c.hash !== WORKTREE && !isOtherWork(c.hash)
     && (c.subject.toLowerCase().includes(q) || c.author.toLowerCase().includes(q) || c.hash.startsWith(q));
   // eslint-disable-next-line react-hooks/exhaustive-deps -- isMatch depends only on q
   const matches = useMemo(() => q ? vms.filter((v) => isMatch(v.commit)) : [], [vms, q]);
@@ -1384,13 +1353,13 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
         <div style={{ height: first * RH }} />
         {vms.slice(first, last).map((vm) => {
           const isOpen = expanded === vm.commit.hash;
-          const isWork = vm.commit.hash === WORKTREE;
-          const groups = groupRefs(vm.commit.refs);
+          const isWork = vm.commit.hash === WORKTREE, otherWork = isOtherWork(vm.commit.hash);
+          const groups = groupRefs(vm.commit.refs, remoteNames);
           const ghostName = isWork ? undefined : onBranch.get(vm.commit.hash);
           return (
             <div key={vm.commit.hash} style={S === 1 ? undefined : { zoom: S }}>
               <div onClick={() => select(vm.commit)} data-hash={vm.commit.hash}
-                onContextMenu={(e) => { e.preventDefault(); if (!isWork) setMenu({ x: e.clientX, y: e.clientY, commit: vm.commit }); }}
+                onContextMenu={(e) => { e.preventDefault(); if (!isWork && !otherWork) setMenu({ x: e.clientX, y: e.clientY, commit: vm.commit }); }}
                 className={"group/row flex h-[28px] cursor-pointer items-center gap-2 px-2 transition-opacity "
                   + (isOpen ? "" : "hover:bg-white/5 ") + (dimmed(vm.commit) ? "opacity-35" : "")}
                 // Selected: a band in the commit's lane colour, stronger behind the message. The
@@ -1433,13 +1402,13 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
                   <div className="flex min-w-0 flex-1 items-center gap-1.5">
                     {isWork
                       ? <span className="truncate italic text-text-secondary">Uncommitted changes · {changes.length} file{changes.length === 1 ? "" : "s"}</span>
-                      : <span className={"truncate " + (isOpen || !head || inHead.has(vm.commit.hash) ? "text-text-primary" : "text-text-muted")}>{vm.commit.subject}</span>}
+                      : <span className={"truncate " + (otherWork ? "italic text-text-secondary" : isOpen || !head || inHead.has(vm.commit.hash) ? "text-text-primary" : "text-text-muted")}>{vm.commit.subject}</span>}
                   </div>
                   {showDate && <span className={"w-20 shrink-0 text-right text-[11px] " + (isOpen ? "text-text-primary" : "text-text-muted")}>{vm.commit.date}</span>}
                   {showSha && <span className={"w-16 shrink-0 text-right font-mono text-[11px] " + (isOpen ? "text-text-primary" : "text-text-muted")}>
                     {copied === vm.commit.hash
                       ? <span className="inline-flex items-center gap-1" style={{ color: "rgb(var(--tone-green-400))" }}><Check size={10} /> copied</span>
-                      : isWork ? "" : vm.commit.hash.slice(0, 7)}
+                      : isWork || otherWork ? "" : vm.commit.hash.slice(0, 7)}
                   </span>}
                 </div>
               </div>
