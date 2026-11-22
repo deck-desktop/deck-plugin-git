@@ -10,6 +10,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { getPending, subscribePending, takePending } from "./pending";
 import { ArrowLeft, FolderGit2, X } from "lucide-react";
 import { GitGraph, commitFileSides, WORKTREE } from "./GitGraph";
+import { isOtherWork, OTHER_WORK } from "./worktreehomes";
 import { WorkPanel, statusFileSides, rowKey } from "./WorkPanel";
 import { PrList, PrView } from "./PrReview";
 import { CommitPanel } from "./CommitPanel";
@@ -91,6 +92,15 @@ export default function GraphPane({ cwd, paneId }: { cwd: string; paneId?: strin
     if (r === repo) pickRepo(list.shown[at + 1] ?? list.shown[at - 1] ?? r);
   };
   const [busy, setBusy] = useState(false);
+  // The folder whose uncommitted changes the side panel lists: ours, or another worktree's from its row.
+  const workRoot = commit && isOtherWork(commit.hash) ? commit.hash.slice(OTHER_WORK.length) : repo;
+  // An agent changes its worktree without telling anyone: its list is read again every 5s while shown.
+  const [workTick, setWorkTick] = useState(0);
+  useEffect(() => {
+    if (workRoot === repo) return;
+    const id = setInterval(() => { if (!document.hidden) setWorkTick((n) => n + 1); }, 5000);
+    return () => clearInterval(id);
+  }, [workRoot, repo]);
   const [treeView, setTreeView] = useState(true);
   // The graph asks before a reset or a branch delete, and refuses the action with no one to ask
   // through — in the editor that is the editor's dialog, here it is this one.
@@ -152,7 +162,7 @@ export default function GraphPane({ cwd, paneId }: { cwd: string; paneId?: strin
     setDiff({ id: `${hash}:${f.rel}`, path: `${hash}:${f.rel}`, base, mod, title });
   };
   // An uncommitted file: staged and unstaged are separate diffs.
-  const openStatusDiff = async (r: GitStatusRow) => {
+  const openStatusDiff = async (r: GitStatusRow, repo = workRoot) => {
     const key = `${WORKTREE}:${rowKey(r)}`;
     if (r.letter === "!") { setDiff({ id: key, path: key, base: "", mod: "", title: `${baseName(r.rel)} (Conflicts)`, conflict: r }); return; }
     if (mediaKind(r.rel)) {
@@ -178,12 +188,12 @@ export default function GraphPane({ cwd, paneId }: { cwd: string; paneId?: strin
    */
   const hunkAction = (r: GitStatusRow): HunkAction => {
     const done = async () => {
-      window.dispatchEvent(new CustomEvent(GIT_CHANGED, { detail: repo }));
+      window.dispatchEvent(new CustomEvent(GIT_CHANGED, { detail: workRoot }));
       await openStatusDiff(r);
     };
     const fail = (what: string) => (e: unknown) => {
       console.warn(`[git] ${what} failed`, e);
-      setConfirm(failedDialog(`${what} failed`, e, repo));
+      setConfirm(failedDialog(`${what} failed`, e, workRoot));
     };
     // A change the other way round: the left side's lines laid over the right side's.
     const flip = (c: Parameters<HunkAction["run"]>[0]) => ({
@@ -192,11 +202,11 @@ export default function GraphPane({ cwd, paneId }: { cwd: string; paneId?: strin
     });
     if (r.staged) return {
       label: "−", unstage: true,
-      run: (c, m) => void gitSetIndexContent(repo, r.rel, applyLineChanges(m.modified, m.original, [flip(c)])).then(done, fail("Unstaging the change")),
+      run: (c, m) => void gitSetIndexContent(workRoot, r.rel, applyLineChanges(m.modified, m.original, [flip(c)])).then(done, fail("Unstaging the change")),
     };
     return {
       label: "+", unstage: false,
-      run: (c, m) => void gitSetIndexContent(repo, r.rel, applyLineChanges(m.original, m.modified, [c])).then(done, fail("Staging the change")),
+      run: (c, m) => void gitSetIndexContent(workRoot, r.rel, applyLineChanges(m.original, m.modified, [c])).then(done, fail("Staging the change")),
       revert: (c, m) => setConfirm({
         title: "Revert this change?", confirmLabel: "Revert", danger: true,
         body: "These lines go back to their staged text, in the file on disk. This cannot be undone here.",
@@ -252,7 +262,10 @@ export default function GraphPane({ cwd, paneId }: { cwd: string; paneId?: strin
               // Keyed: the graph reads its state once on mount, so a new repo needs a new graph.
               : <GitGraph key={`${repo}:${file ?? ""}`} root={repo} onConfirm={setConfirm}
                   rel={file ?? undefined} onClearFile={() => setFile(null)} focusHash={focusHash}
-                  onOpenCommit={(c, files, log) => { setPrsOpen(false); void showCommit(c.hash, log, files && { files, meta: c }); }}
+                  onOpenCommit={(c, files, log) => { setPrsOpen(false);
+                    // Another worktree's uncommitted row: its own folder's changes, in the same panel as ours.
+                    if (isOtherWork(c.hash)) { setCommit({ hash: c.hash, files: [], log: [], meta: c }); return; }
+                    void showCommit(c.hash, log, files && { files, meta: c }); }}
                   onShowPrs={() => setPrsOpen(true)}
                   // Several repos under this folder, as a dropdown: it sits at the toolbar's left.
                   toolbarStart={repos.length > 1 && !repoTabs && <RepoSelect cwd={cwd} repos={[...list.shown, ...list.hidden]} repo={repo} onPick={pickRepo} />} />}
@@ -283,8 +296,8 @@ export default function GraphPane({ cwd, paneId }: { cwd: string; paneId?: strin
           <div className="my-1.5 mr-1.5 flex min-h-0 shrink-0 flex-col overflow-hidden rounded-[10px] border border-subtle bg-panel" style={{ width: sideW }}>
             {prsOpen ? (
               <PrList root={repo} selected={pr} onOpen={(n, title) => { setPr(n); setPrTitle(title); setDiff(null); }} onClose={() => setPrsOpen(false)} />
-            ) : commit && commit.hash === WORKTREE ? (
-              <WorkPanel key={repo} root={repo} theme={theme} onConfirm={setConfirm}
+            ) : commit && (commit.hash === WORKTREE || isOtherWork(commit.hash)) ? (
+              <WorkPanel key={workRoot} root={workRoot} polled={workRoot === repo ? undefined : workTick} theme={theme} onConfirm={setConfirm}
                 selected={diff?.id.startsWith(`${WORKTREE}:`) ? diff.id.slice(WORKTREE.length + 1) : undefined}
                 treeView={treeView} onToggleTree={() => setTreeView((t) => !t)}
                 onOpenFile={(r) => void openStatusDiff(r)} onClose={() => setCommit(null)}

@@ -29,7 +29,8 @@ export const isOtherWork = (hash: string) => hash.startsWith(OTHER_WORK);
 
 /**
  * The log with a row of uncommitted changes above the tip of each branch an agent is working on in
- * another worktree, as the repo's own checkout has above HEAD: dotted, its parent the branch's tip,
+ * another worktree, as the repo's own checkout has above HEAD (the same words: it sits on the branch's
+ * lane, so the folder needs no naming): dotted, its parent the branch's tip,
  * so the lanes draw it on the branch. A branch whose tip is not in the log (filtered out) gets none.
  */
 export function withWorktreeRows(list: GraphCommit[], homes: Map<string, BranchHome>): GraphCommit[] {
@@ -39,7 +40,7 @@ export function withWorktreeRows(list: GraphCommit[], homes: Map<string, BranchH
     const at = out.findIndex((c) => c.refs.some((r) => r === h.branch || r === `HEAD -> ${h.branch}`));
     if (at < 0) continue;
     const row: GraphCommit = { hash: OTHER_WORK + h.path, parents: [out[at].hash], author: "", email: "", date: "",
-      subject: `Uncommitted changes · ${h.changed} file${h.changed === 1 ? "" : "s"} in ${h.folder}`, body: "", refs: [] };
+      subject: `Uncommitted changes · ${h.changed} file${h.changed === 1 ? "" : "s"}`, body: "", refs: [] };
     out = [...out.slice(0, at), row, ...out.slice(at)];
   }
   return out;

@@ -27,7 +27,7 @@ const homes = new Map([
 const rows = o.withWorktreeRows(log, homes);
 assert.deepEqual(rows.map((r) => r.hash), ["worktree:D:/r.x", "a", "b", "c"], "only a branch with changes, and only one in the log");
 assert.deepEqual(rows[0].parents, ["a"]);
-assert.equal(rows[0].subject, "Uncommitted changes · 2 files in r.x");
+assert.equal(rows[0].subject, "Uncommitted changes · 2 files");
 assert.ok(o.isOtherWork(rows[0].hash) && !o.isOtherWork("worktree"));
 
 console.log("worktreehomes.check.mjs: all assertions passed");

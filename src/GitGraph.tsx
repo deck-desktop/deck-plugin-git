@@ -337,8 +337,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
   // open under the row as well, which repeated the sidebar and pushed the rest of the log away.
   const select = (c: GraphCommit) => {
     setExpanded(c.hash);
-    // Another worktree's changes are in its own folder: the files panel has them under its branch.
-    if (!isOtherWork(c.hash)) onOpenCommit?.(c, c.hash === WORKTREE ? changes : undefined, commits);
+    onOpenCommit?.(c, c.hash === WORKTREE ? changes : undefined, commits);
   };
 
   // Re-read the log from disk. Keeps the selected row and the filter.
@@ -824,7 +823,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
         {g.tag && !isBranch(g) && <Tag size={10} className="shrink-0" />}
         <span className="truncate">{g.name}</span>
         {g.local && (home
-          ? <span className="flex shrink-0 items-center gap-0.5 opacity-80"><FolderGit2 size={11} />{home.changed > 0 && <span className="text-[10px] tabular-nums">{home.changed}</span>}</span>
+          ? <FolderGit2 size={11} className="shrink-0 opacity-80" />
           : <Laptop size={11} className="shrink-0 opacity-70" />)}
         {g.remotes.length > 0 && (
           <Cloud size={11} className="shrink-0 opacity-70 hover:opacity-100"
