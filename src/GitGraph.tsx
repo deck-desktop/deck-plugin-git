@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Loader2, RefreshCw, GitBranch, Copy, Undo2, GitCommitHorizontal, Tag, RotateCcw, Check, Filter, GitMerge, Trash2, AlertTriangle,
-  ArrowDownToLine, ArrowUpFromLine, GitBranchPlus, Archive, ArchiveRestore, LogIn, Pencil, Search, X, Laptop, Cloud, GitPullRequest, History,
+  ArrowDownToLine, ArrowUpFromLine, GitBranchPlus, Archive, ArchiveRestore, LogIn, Pencil, Search, X, Laptop, Cloud, GitPullRequest, History, FolderGit2,
 } from "lucide-react";
 import {
   gitLogGraph, gitRefs, openExternal, gitStatus, gitFileBytes, fsReadBytes, type GraphCommit, type CommitFile, type GitRef,
@@ -23,6 +23,8 @@ import { AvatarNode } from "./avatar";
 import { decodeText } from "../shim/ui.js";
 import { ErrorText, failedDialog } from "./ErrorText";
 import { groupRefs, isBranch, parseRef, type ParsedRef, type RefGroup } from "./refs";
+import { useWorktreeHomes } from "./worktrees";
+import { applyDtCommand } from "../shim/terminals.js";
 
 /**
  * The search of every git graph on screen, the most recently used last.
@@ -572,6 +574,9 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
   // Open pull requests (or GitLab merge requests) by head branch, for the pills' icons. Empty
   // without the host's CLI.
   const prHost = usePrHost(root);
+  // Branches checked out in other worktrees (an agent each, from Deck's "on its own branch"): a
+  // folder on their pill, and a terminal there instead of a checkout git would refuse.
+  const homes = useWorktreeHomes(root, commits);
   const prNoun = prHost?.noun ?? "pull request";
   const [prs, setPrs] = useState<Map<string, PrInfo>>(new Map());
   const loadPrs = () => {
@@ -641,7 +646,9 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
 
     // Switching branch asks nothing: git refuses on its own when local changes would be
     // overwritten, and that refusal is reported like any other failure.
-    if (p.kind === "local" && !p.current) rows.push({ label: "Check out", icon: LogIn, onClick: () => checkout(p) });
+    const home = p.kind === "local" ? homes.get(p.label) : undefined;
+    if (home) rows.push({ label: "Open a terminal there", subLabel: `It is checked out in ${home.folder}`, icon: FolderGit2, onClick: () => applyDtCommand("new-tab", { title: p.label, cwd: home.path }) });
+    else if (p.kind === "local" && !p.current) rows.push({ label: "Check out", icon: LogIn, onClick: () => checkout(p) });
     if (p.kind === "remote") {
       rows.push({ label: "Check out as local branch", icon: LogIn, onClick: () => checkout(p),
         subLabel: "Creates it tracking this remote branch, or switches to it if it exists" });
@@ -794,6 +801,7 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
     const primary = g.local ?? g.remotes[0] ?? g.tag ?? g.other;
     const tint = g.tag && !isBranch(g) ? g.tag.color : color;
     const pr = !ghost && isBranch(g) ? prs.get(g.name) : undefined;
+    const home = !ghost && g.local ? homes.get(g.local.label) : undefined;
     return (
       <span
         data-ref-group={!ghost && isBranch(g) ? g.name : undefined}
@@ -804,14 +812,17 @@ export function GitGraph({ root, onOpenCommit, onConfirm, onRepoChanged, rel, fo
         }}
         onClick={(e) => { if (suppressClick.current) e.stopPropagation(); }} onContextMenu={openRef(primary)}
         onDoubleClick={(e) => { e.stopPropagation(); if (!ghost && !g.current && isBranch(g)) checkout(g.local ?? g.remotes[0]); }}
-        title={ghost ? `On ${g.name}` : [g.local?.label, ...g.remotes.map((r) => r.label), g.tag && `tag ${g.tag.label}`].filter(Boolean).join(" · ")}
+        title={ghost ? `On ${g.name}` : [g.local?.label, ...g.remotes.map((r) => r.label), g.tag && `tag ${g.tag.label}`,
+          home && `checked out in ${home.folder}${home.changed ? `, ${home.changed} uncommitted` : ""}`].filter(Boolean).join(" · ")}
         className={"flex h-[18px] min-w-0 shrink select-none items-center gap-1 rounded px-1.5 text-[11px] font-medium text-text-primary "
           + (ghost ? "opacity-50" : "cursor-pointer hover:brightness-125")}
         style={{ background: tint + "40" }}>
         {g.current && <Check size={11} className="shrink-0" />}
         {g.tag && !isBranch(g) && <Tag size={10} className="shrink-0" />}
         <span className="truncate">{g.name}</span>
-        {g.local && <Laptop size={11} className="shrink-0 opacity-70" />}
+        {g.local && (home
+          ? <span className="flex shrink-0 items-center gap-0.5 opacity-80"><FolderGit2 size={11} />{home.changed > 0 && <span className="text-[10px] tabular-nums">{home.changed}</span>}</span>
+          : <Laptop size={11} className="shrink-0 opacity-70" />)}
         {g.remotes.length > 0 && (
           <Cloud size={11} className="shrink-0 opacity-70 hover:opacity-100"
             onContextMenu={openRef(g.remotes[0])} />
