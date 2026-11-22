@@ -14,11 +14,17 @@ import { GIT_CHANGED } from "./WorkPanel";
 
 const EVERY_MS = 3000;
 
-/** The repo's state as one string; equal strings mean nothing moved. */
-export const repoSignature = (root: string) =>
+/**
+ * The repo's state as one string; equal strings mean nothing moved. Every ref's commit as well as
+ * this checkout's status: an agent committing on its own branch in another worktree (or a fetch, a
+ * tag) moves a ref without changing anything here, and the graph stayed where it was until fetched.
+ */
+export const repoSignature = (root: string) => Promise.all([
   // --no-optional-locks: a read must not take .git/index.lock, or an agent's own git command
   // running at the same moment fails on it.
-  gitRun(root, ["--no-optional-locks", "status", "--porcelain=v2", "-b"]);
+  gitRun(root, ["--no-optional-locks", "status", "--porcelain=v2", "-b"]),
+  gitRun(root, ["for-each-ref", "--format=%(objectname) %(refname)"]),
+]).then((parts) => parts.join("\n"));
 
 /**
  * Re-read the repo when it changes outside Deck. `onScreen` is the graph's own on-screen flag (its
