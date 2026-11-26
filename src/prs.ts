@@ -93,7 +93,7 @@ export function prState(checks: Check[], reviewDecision: string): PrState {
 export const PR_LIST_FIELDS = "number,title,url,headRefName,baseRefName,author,isDraft,reviewDecision,statusCheckRollup,updatedAt";
 
 /** One row of the pull-request list. */
-export interface PrRow extends PrInfo { head: string; base: string; author: string; updatedAt: string }
+export interface PrRow extends PrInfo { head: string; base: string; author: string; updatedAt: string; /** GitLab: the author's picture (GitHub's comes from the login). */ avatar?: string }
 
 const login = (a: unknown) => String((a as { login?: string } | null)?.login ?? "");
 
@@ -144,6 +144,8 @@ export interface PrDetail {
   diffRefs?: { base: string; start: string; head: string };
   /** GitLab only: whether you have approved it. */
   approvedByMe?: boolean;
+  /** GitLab only: each person's picture, by username (GitHub's comes from the login). */
+  avatars?: Record<string, string>;
 }
 
 /** `gh pr view --json PR_VIEW_FIELDS` as what the review view shows. Null if it is not that. */
@@ -238,6 +240,7 @@ export function parseThreads(json: string): PrThread[] {
 
 type Json = Record<string, unknown>;
 const user = (u: unknown) => String((u as { username?: string } | null)?.username ?? "");
+const picture = (u: unknown) => String((u as { avatar_url?: string } | null)?.avatar_url ?? "");
 const list = (v: unknown) => (Array.isArray(v) ? (v as Json[]) : []);
 const parse = (json: string): unknown => { try { return JSON.parse(json); } catch { return null; } };
 
@@ -266,7 +269,7 @@ export function parseMrRows(json: string): PrRow[] {
     isDraft: !!r.draft, review: r.detailed_merge_status === "requested_changes" ? "CHANGES_REQUESTED" : "",
     state: mrState(String(r.detailed_merge_status ?? "")),
     head: String(r.source_branch ?? ""), base: String(r.target_branch ?? ""),
-    author: user(r.author), updatedAt: String(r.updated_at ?? ""),
+    author: user(r.author), updatedAt: String(r.updated_at ?? ""), avatar: picture(r.author) || undefined,
   }));
 }
 
@@ -303,8 +306,13 @@ export function parseMrDetail(mrJson: string, approvalsJson: string, discussions
   const pipe = r.head_pipeline as Json | null;
   const refs = (r.diff_refs ?? {}) as Json;
   const timeline: PrEvent[] = [];
+  const avatars: Record<string, string> = {};
+  const seen = (u: unknown) => { const name = user(u), url = picture(u); if (name && url) avatars[name] = url; };
+  seen(r.author);
+  for (const p of list(r.reviewers)) seen(p);
   for (const d of list(parse(discussionsJson))) {
     for (const n of list(d.notes)) {
+      seen(n.author);
       if (n.position) continue; // a line comment: the Files tab shows it
       const body = String(n.body ?? ""), at = String(n.created_at ?? "");
       if (!n.system) timeline.push({ kind: "comment", author: user(n.author), body, at });
@@ -329,6 +337,7 @@ export function parseMrDetail(mrJson: string, approvalsJson: string, discussions
     })).reverse(),
     requested: list(r.reviewers).map(user).filter(Boolean),
     labels: list(r.labels).map((l) => ({ name: String(l), color: "" })),
+    avatars,
     // A string: "12", or "1000+" when GitLab stopped counting.
     additions: null, deletions: null, changedFiles: parseInt(String(r.changes_count ?? "0"), 10) || 0,
     diffRefs: { base: String(refs.base_sha ?? ""), start: String(refs.start_sha ?? ""), head: String(refs.head_sha ?? "") },

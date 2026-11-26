@@ -5,8 +5,10 @@ import { heading, chipTone } from "../util";
 import { mergeBlocker, type PrDetail } from "../prs";
 import { STATE_COLOR, TONE } from "./common";
 import { readiness, reviewers } from "./status";
+import { Person, pictureOf } from "./Person";
+import type { PrHost } from "../prhost";
 
-export function PrSide({ d }: { d: PrDetail }) {
+export function PrSide({ d, host }: { d: PrDetail; host: PrHost }) {
   const blocker = d.state === "OPEN" ? mergeBlocker(d) : null;
   const people = reviewers(d);
   const title = d.state === "MERGED" ? "Merged" : d.state === "CLOSED" ? "Closed" : blocker ? "Cannot merge yet" : "Before it can merge";
@@ -44,6 +46,7 @@ export function PrSide({ d }: { d: PrDetail }) {
           <h4 className={heading + " mb-1"}>Reviewers</h4>
           {people.map((p) => (
             <div key={p.name} className="flex h-7 items-center gap-2 text-[12.5px]">
+              <Person name={p.name} url={pictureOf(host, p.name, d.avatars?.[p.name])} size={20} />
               <span className="min-w-0 flex-1 truncate text-text-secondary">{p.name}</span>
               <span className="shrink-0 rounded-full px-1.5 py-px text-[10.5px]" style={chipTone(TONE[p.tone])}>{p.verdict}</span>
             </div>

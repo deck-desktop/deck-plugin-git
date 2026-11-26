@@ -17,7 +17,7 @@ import { GIT_CHANGED } from "./WorkPanel";
 import { toolBtn, field, secondaryBtn, heading, chipTone } from "./util";
 import { PR_CHANGED, type PrDetail } from "./prs";
 import { usePrHost, type Verdict } from "./prhost";
-import { Avatar } from "./avatar";
+import { Person, pictureOf } from "./pr/Person";
 import { TONE, ago, failWith } from "./pr/common";
 import { PrFiles } from "./pr/PrFiles";
 import { PrActions } from "./pr/PrActions";
@@ -91,13 +91,13 @@ export function PrView({ root, remote, number, theme, onConfirm, onOpenCommit }:
       {/* Header: what it is on the left, the one thing to do on the right. */}
       <div className="shrink-0 px-6 pt-4">
         <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
-          <div className="min-w-0" style={{ flex: "1 1 420px" }}>
+          <div className="min-w-0" style={{ flex: "1 1 280px" }}>
             <div className="text-[16px] font-semibold text-text-primary" style={{ lineHeight: "24px" }}>
               <span className="mr-2 inline-block rounded-full px-2 py-px text-[11px] font-medium" style={{ ...chipTone(stateBadge[1]), verticalAlign: 3 }}>{stateBadge[0]}</span>
               {d.title} <span className="font-normal text-text-muted">{host.sign}{d.number}</span>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-text-muted">
-              <span className="flex items-center gap-1.5"><Avatar root={root} name={d.author} email="" className="size-[18px] shrink-0 rounded-full" /><span className="text-text-secondary">{d.author}</span></span>
+              <span className="flex items-center gap-1.5"><Person name={d.author} url={pictureOf(host, d.author, d.avatars?.[d.author])} size={18} /><span className="text-text-secondary">{d.author}</span></span>
               <span className="flex h-[22px] items-center gap-1.5 rounded-md border border-subtle bg-elev px-2 font-mono text-[11.5px] text-text-secondary" title={`${d.head} into ${d.base}`}>
                 <span className="min-w-0 truncate">{d.head}</span><ArrowRight size={11} className="shrink-0 text-text-muted" /><span className="shrink-0">{d.base}</span>
               </span>
@@ -118,9 +118,11 @@ export function PrView({ root, remote, number, theme, onConfirm, onOpenCommit }:
       <div className="min-h-0 flex-1">
         {tab === "overview" && (
           <div className="scroll-thin h-full overflow-y-auto px-6 py-5">
-            <div className="flex flex-wrap items-start gap-6">
+            {/* Reversed, so where the two do not fit side by side, what decides the merge comes first. */}
+            <div className="flex flex-row-reverse flex-wrap items-start justify-end gap-6">
+              <PrSide d={d} host={host} />
               {/* The description at a width that reads, and the conversation under it. */}
-              <article className="min-w-0" style={{ flex: "999 1 420px", maxWidth: 760 }}>
+              <article className="min-w-0" style={{ flex: "999 1 360px", maxWidth: 760 }}>
                 <div className="prose-deck text-[13px] leading-relaxed text-text-secondary">
                   {d.body.trim() ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{d.body}</ReactMarkdown> : <p className="text-text-muted">No description.</p>}
                 </div>
@@ -131,7 +133,7 @@ export function PrView({ root, remote, number, theme, onConfirm, onOpenCommit }:
                   <div className="space-y-4">
                     {d.timeline.map((e, i) => (
                       <div key={i} className="flex gap-2.5">
-                        <Avatar root={root} name={e.author} email="" className="size-6 shrink-0 rounded-full" />
+                        <Person name={e.author} url={pictureOf(host, e.author, d.avatars?.[e.author])} size={24} />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 text-[11.5px] text-text-muted">
                             <span className="font-medium text-text-primary">{e.author}</span>
@@ -161,8 +163,6 @@ export function PrView({ root, remote, number, theme, onConfirm, onOpenCommit }:
                   </div>
                 </section>
               </article>
-
-              <PrSide d={d} />
             </div>
           </div>
         )}

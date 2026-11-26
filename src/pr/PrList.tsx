@@ -2,13 +2,14 @@
 // your review, yours, everyone else's, and bots' folded into one row), searched from the top. Each
 // row gives the title in full, who and when, and the one thing that decides it next.
 import { useEffect, useState } from "react";
-import { Loader2, RefreshCw, X, GitPullRequest, Search, Bot, ChevronRight, ChevronDown } from "lucide-react";
+import { Loader2, RefreshCw, X, Search, Bot, ChevronRight, ChevronDown } from "lucide-react";
 import { toolBtn, field, countChip, heading } from "../util";
 import { PR_CHANGED, type PrRow } from "../prs";
 import { usePrHost, prError, type PrHost } from "../prhost";
 import { ErrorText } from "../ErrorText";
 import { STATE_COLOR, TONE, ago } from "./common";
 import { groupRows, rowStatus } from "./status";
+import { Person, pictureOf } from "./Person";
 
 interface Lists { all: PrRow[]; review: PrRow[] | null; mine: PrRow[] | null }
 
@@ -123,7 +124,8 @@ function Group({ title, rows, accent, host, selected, onOpen }: {
           <button key={r.number} onClick={() => onOpen(r)} title={`${r.head} → ${r.base}`}
             className={"flex w-full gap-2 rounded-md px-2 py-1.5 text-left transition-colors " + (on ? "" : "hover:bg-white/5")}
             style={on ? { background: "var(--accent-soft)" } : undefined}>
-            <GitPullRequest size={13} className="shrink-0" style={{ marginTop: 2, color: r.isDraft ? "var(--text-muted)" : STATE_COLOR[r.state] }} />
+            {/* Who opened it, the dot its checks' state. */}
+            <span style={{ marginTop: 1, opacity: r.isDraft ? 0.6 : 1 }}><Person name={r.author} url={pictureOf(host, r.author, r.avatar)} size={20} dot={r.isDraft || r.state === "none" ? undefined : STATE_COLOR[r.state]} /></span>
             <span className="min-w-0 flex-1">
               <span className={"line-clamp-2 text-[12.5px] leading-[17px] " + (r.isDraft ? "text-text-secondary" : "text-text-primary")}>{r.title}</span>
               <span className="mt-0.5 flex items-center gap-2 text-[11px] text-text-muted">
