@@ -125,8 +125,8 @@ export function PrView({ root, remote, number, theme, onConfirm, onOpenCommit }:
             {/* Reversed, so where the two do not fit side by side, what decides the merge comes first. */}
             <div className="flex flex-wrap items-start justify-end gap-6" style={{ flexDirection: "row-reverse" }}>
               <PrSide d={d} host={host} />
-              {/* The description at a width that reads, and the conversation under it. */}
-              <article className="min-w-0" style={{ flex: "999 1 360px", maxWidth: 760 }}>
+              {/* The description, as wide as the pane allows, and the conversation under it. */}
+              <article className="min-w-0" style={{ flex: "999 1 360px" }}>
                 <div className="prose-deck text-[13px] leading-relaxed text-text-secondary">
                   {d.body.trim() ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{d.body}</ReactMarkdown> : <p className="text-text-muted">No description.</p>}
                 </div>
