@@ -318,7 +318,8 @@ export function parseMrDetail(mrJson: string, approvalsJson: string, discussions
     state: MR_STATE[String(r.state)] ?? String(r.state ?? "").toUpperCase(), isDraft: !!r.draft, author: user(r.author),
     head: String(r.source_branch ?? ""), base: String(r.target_branch ?? ""),
     headOid: String(refs.head_sha ?? r.sha ?? ""), baseOid: String(refs.base_sha ?? ""),
-    mergeable: "", mergeState: "", blocker: mrBlocker(status, String(r.target_branch ?? "")),
+    // mergeState holds GitLab's own detailed_merge_status ("conflict", "checking"…), for pr/status.ts.
+    mergeable: "", mergeState: status, blocker: mrBlocker(status, String(r.target_branch ?? "")),
     review: status === "requested_changes" ? "CHANGES_REQUESTED" : a.approved && list(a.approved_by).length ? "APPROVED" : "",
     checks: pipe ? [{ name: `Pipeline #${pipe.id}`, state: pipelineState(String(pipe.status ?? "")), url: String(pipe.web_url ?? "") }] : [],
     timeline,

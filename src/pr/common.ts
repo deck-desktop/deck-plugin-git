@@ -15,3 +15,6 @@ export const ago = (iso: string) => {
   return !isFinite(s) ? "" : s < 3600 ? `${Math.max(1, Math.round(s / 60))}m` : s < 86400 ? `${Math.round(s / 3600)}h` : `${Math.round(s / 86400)}d`;
 };
 export const failWith = (onConfirm: (s: ConfirmState) => void, root: string) => (title: string, e: unknown) => onConfirm(failedDialog(title, e, root));
+
+/** A state's colour, for a status word or a dot (pr/status.ts's tones). */
+export const TONE: Record<"ok" | "bad" | "wait" | "muted", string> = { ok: "rgb(var(--tone-green-400))", bad: "rgb(var(--tone-red-400))", wait: "rgb(var(--tone-amber-400))", muted: "var(--text-muted)" };
