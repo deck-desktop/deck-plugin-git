@@ -5,7 +5,7 @@ import remarkGfm from "remark-gfm";
 import { Loader2, MessageSquare, List, ListTree, Columns2, Rows2 } from "lucide-react";
 import { gitRangeFiles, gitFileBytes, type CommitFile } from "../../shim/bridge.js";
 import { gitMergeBase } from "../git";
-import { FileIcon, MonacoDiff, MediaDiff, mediaKind, statusColor, buildChangeTree, type ConfirmState, type IconTheme, type DiffSide } from "../../shim/ui.js";
+import { useResize, FileIcon, MonacoDiff, MediaDiff, mediaKind, statusColor, buildChangeTree, type ConfirmState, type IconTheme, type DiffSide } from "../../shim/ui.js";
 import { commitFileSides } from "../GitGraph";
 import { CommitRow } from "../CommitPanel";
 import { baseName, toolBtn, field, accentFill, toggledOn } from "../util";
@@ -20,13 +20,16 @@ import { ago, failWith, smallBtn, smallPrimary } from "./common";
  * A list on the left, the selected file's diff on the right.
  */
 // The file list's shape and the diff's layout, per machine — the same choice every PR gets.
-const TREE_KEY = "deck-pr-files-tree", SPLIT_KEY = "deck-pr-diff-split";
+const TREE_KEY = "deck-pr-files-tree", SPLIT_KEY = "deck-pr-diff-split", WIDTH_KEY = "deck-pr-files-width";
 const loadFlag = (key: string, fallback: boolean) => { try { const v = localStorage.getItem(key); return v == null ? fallback : v === "1"; } catch { return fallback; } };
 const saveFlag = (key: string, v: boolean) => { try { localStorage.setItem(key, v ? "1" : "0"); } catch { /* private mode */ } };
 
 export function PrFiles({ root, host, remote, d, theme, onConfirm }: { root: string; host: PrHost; remote: string; d: PrDetail; theme: IconTheme; onConfirm: (s: ConfirmState) => void }) {
   const fail = failWith(onConfirm, root);
   const [tree, setTree] = useState(() => loadFlag(TREE_KEY, true));
+  // The file list's width, dragged from its edge and kept per machine like the two choices above.
+  const [listW, listDrag, dragging] = useResize({ initial: Number((() => { try { return localStorage.getItem(WIDTH_KEY); } catch { return null; } })()) || 256, min: 160, max: 640, direction: "horizontal" });
+  useEffect(() => { if (!dragging) { try { localStorage.setItem(WIDTH_KEY, String(Math.round(listW))); } catch { /* private mode */ } } }, [listW, dragging]);
   // Side by side unless chosen otherwise here: a review reads old against new, and the editor's
   // inline preference is about its own diffs.
   const [sideBySide, setSideBySide] = useState(() => loadFlag(SPLIT_KEY, true));
@@ -129,7 +132,7 @@ export function PrFiles({ root, host, remote, d, theme, onConfirm }: { root: str
   if (error && !files.length) return <div className="p-4 text-[12px] leading-relaxed text-text-muted"><ErrorText e={error} root={root} pre={false} /></div>;
   return (
     <div className="flex h-full min-h-0">
-      <div className="flex w-64 shrink-0 flex-col border-r border-subtle bg-panel">
+      <div className="flex shrink-0 flex-col bg-panel" style={{ width: listW }}>
         <div className="flex h-9 shrink-0 items-center gap-1 pl-3 pr-1.5 text-[11.5px] text-text-muted">
           <span>{files.length} file{files.length === 1 ? "" : "s"}</span>
           <button onClick={() => { setTree(!tree); saveFlag(TREE_KEY, !tree); }} title={tree ? "View as List" : "View as Tree"} className={toolBtn + " ml-auto"}>
@@ -150,6 +153,7 @@ export function PrFiles({ root, host, remote, d, theme, onConfirm }: { root: str
             ))}
         </div>
       </div>
+      <div {...listDrag} title="Drag to resize" className="w-1.5 shrink-0 cursor-col-resize border-l border-subtle transition-colors hover:bg-[var(--accent)]" />
       <div className="flex min-w-0 flex-1 flex-col">
         {pick && (
           <div className="flex h-9 shrink-0 items-center gap-1 border-b border-subtle pl-3 pr-1.5 text-[11.5px] text-text-muted">
