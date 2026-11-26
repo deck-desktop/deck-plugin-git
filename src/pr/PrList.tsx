@@ -2,7 +2,10 @@
 // your review, yours, everyone else's, and bots' folded into one row), searched from the top. Each
 // row gives the title in full, who and when, and the one thing that decides it next.
 import { useEffect, useState } from "react";
-import { Loader2, RefreshCw, X, Search, Bot, ChevronRight, ChevronDown } from "lucide-react";
+import { Loader2, RefreshCw, X, Search, Bot, ChevronRight, ChevronDown, LogIn, Link2, ExternalLink, GitBranch, Eye } from "lucide-react";
+import { openExternal } from "../../shim/bridge.js";
+import { ContextMenu, type MenuEntry } from "../../shim/ui.js";
+import { GIT_CHANGED } from "../WorkPanel";
 import { toolBtn, field, countChip, heading } from "../util";
 import { PR_CHANGED, type PrRow } from "../prs";
 import { usePrHost, prError, type PrHost } from "../prhost";
@@ -23,6 +26,8 @@ export function PrList({ root, selected, onOpen, onClose }: {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [botsOpen, setBotsOpen] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuEntry[] } | null>(null);
+  const [busy, setBusy] = useState("");
   const load = () => {
     if (!host) return;
     setLists(null); setError("");
@@ -44,6 +49,30 @@ export function PrList({ root, selected, onOpen, onClose }: {
   const g = lists ? groupRows(lists.all, lists.review, lists.mine, query) : null;
   const total = lists ? new Set([...lists.all, ...(lists.review ?? []), ...(lists.mine ?? [])].map((r) => r.number)).size : 0;
   const open = (r: PrRow) => { if (host) onOpen(r.number, `${host.short} ${host.sign}${r.number}`); };
+  /** A host action from a row's menu; a failure is said where the list's own errors are. */
+  const act = (label: string, fn: () => Promise<unknown>, repoMoved = false) => {
+    setBusy(label);
+    void fn().then(() => {
+      if (repoMoved) window.dispatchEvent(new CustomEvent(GIT_CHANGED, { detail: root }));
+      window.dispatchEvent(new CustomEvent(PR_CHANGED, { detail: root }));
+    }, (e) => { console.warn(`[git] ${label} failed`, e); setError(`${label} failed: ${prError(e)}`); }).finally(() => setBusy(""));
+  };
+  const copy = (text: string) => void navigator.clipboard.writeText(text).catch((e) => console.warn("[git] copying failed", e));
+  /** A row's right-click menu: what can be done with it without opening it. */
+  const rowMenu = (r: PrRow) => (e: React.MouseEvent) => {
+    if (!host) return;
+    e.preventDefault();
+    setMenu({ x: e.clientX, y: e.clientY, items: [
+      { label: "Open", icon: Eye, onClick: () => open(r) },
+      { label: "Check out", icon: LogIn, onClick: () => act("Check out", () => host.checkout(r.number), true) },
+      "sep",
+      { label: "Copy link", icon: Link2, onClick: () => copy(r.url) },
+      { label: "Copy branch name", icon: GitBranch, onClick: () => copy(r.head) },
+      { label: `Open in ${host.name}`, icon: ExternalLink, onClick: () => void openExternal(r.url) },
+      "sep",
+      { label: r.isDraft ? "Mark ready for review" : "Convert to draft", onClick: () => act(r.isDraft ? "Mark ready" : "Convert to draft", () => host.setDraft(r.number, !r.isDraft)) },
+    ] });
+  };
   const empty = g && !g.waiting.length && !g.yours.length && !g.others.length && !g.bots.length;
 
   return (
@@ -51,6 +80,7 @@ export function PrList({ root, selected, onOpen, onClose }: {
       <div className="flex shrink-0 items-center gap-1.5 pb-1 pl-3 pr-2 pt-2">
         <span className="min-w-0 truncate text-[12.5px] font-medium text-text-primary">{host?.kind === "gitlab" ? "Merge requests" : "Pull requests"}</span>
         {lists && !error && <span className={countChip}>{total}</span>}
+        {busy && <Loader2 size={13} className="ml-1 animate-spin text-text-muted" aria-label={busy} />}
         <button onClick={load} title="Refresh" className={toolBtn + " ml-auto"}><RefreshCw size={14} /></button>
         <button onClick={onClose} title="Close" className={toolBtn}><X size={14} /></button>
       </div>
@@ -72,9 +102,9 @@ export function PrList({ root, selected, onOpen, onClose }: {
         )}
         {host && g && (
           <>
-            <Group title="Waiting for you" rows={g.waiting} accent host={host} selected={selected} onOpen={open} />
-            <Group title="Yours" rows={g.yours} host={host} selected={selected} onOpen={open} />
-            <Group title="Everyone else" rows={g.others} host={host} selected={selected} onOpen={open} />
+            <Group title="Waiting for you" rows={g.waiting} accent host={host} selected={selected} onOpen={open} onMenu={rowMenu} />
+            <Group title="Yours" rows={g.yours} host={host} selected={selected} onOpen={open} onMenu={rowMenu} />
+            <Group title="Everyone else" rows={g.others} host={host} selected={selected} onOpen={open} onMenu={rowMenu} />
             {g.bots.length > 0 && (
               <div className="mt-2">
                 <button onClick={() => setBotsOpen(!botsOpen)} aria-expanded={botsOpen}
@@ -86,7 +116,7 @@ export function PrList({ root, selected, onOpen, onClose }: {
                 </button>
                 {/* Opened, a line each: what it is, a dot for its checks, its number. */}
                 {botsOpen && g.bots.map((r) => (
-                  <button key={r.number} onClick={() => open(r)} title={`${r.title}\n${r.author} · ${ago(r.updatedAt)}`}
+                  <button key={r.number} onClick={() => open(r)} onContextMenu={rowMenu(r)} title={`${r.title}\n${r.author} · ${ago(r.updatedAt)}`}
                     className={"flex h-6 w-full items-center gap-2 rounded-md pl-8 pr-2 text-left text-[12px] transition-colors " + (selected === r.number ? "" : "hover:bg-white/5")}
                     style={selected === r.number ? { background: "var(--accent-soft)" } : undefined}>
                     <span className="size-[7px] shrink-0 rounded-full" style={{ background: STATE_COLOR[r.state] }} />
@@ -99,13 +129,15 @@ export function PrList({ root, selected, onOpen, onClose }: {
           </>
         )}
       </div>
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </div>
   );
 }
 
 /** A group's heading and rows; nothing at all when it has none. */
-function Group({ title, rows, accent, host, selected, onOpen }: {
+function Group({ title, rows, accent, host, selected, onOpen, onMenu }: {
   title: string; rows: PrRow[]; accent?: boolean; host: PrHost; selected: number | null; onOpen: (r: PrRow) => void;
+  onMenu: (r: PrRow) => (e: React.MouseEvent) => void;
 }) {
   if (!rows.length) return null;
   return (
@@ -121,7 +153,7 @@ function Group({ title, rows, accent, host, selected, onOpen }: {
         const st = rowStatus(r);
         const on = selected === r.number;
         return (
-          <button key={r.number} onClick={() => onOpen(r)} title={`${r.head} → ${r.base}`}
+          <button key={r.number} onClick={() => onOpen(r)} onContextMenu={onMenu(r)} title={`${r.head} → ${r.base}`}
             className={"flex w-full gap-2 rounded-md px-2 py-1.5 text-left transition-colors " + (on ? "" : "hover:bg-white/5")}
             style={on ? { background: "var(--accent-soft)" } : undefined}>
             {/* Who opened it, the dot its checks' state. */}
