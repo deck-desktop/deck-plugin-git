@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.11.0 (2026-11-26)
+
+- Pull requests reworked. The list is one list in groups, Waiting for you, Yours, Everyone else,
+  and bots' updates folded into one row, with a search field. Each row shows the author's picture
+  with a dot for its checks, the title in full, and the one thing that decides it next (Draft,
+  changes asked, checks failed or running, approved). A right-click menu opens, checks out, copies
+  the link or branch name, or marks it ready or a draft.
+- A pull request's header has one filled button for what it waits for: Approve when a review is
+  wanted, Merge when nothing is in the way, Mark ready for a draft, Reopen for a closed one, or
+  **Can't merge yet** saying what is in the way. Check out sits beside it and the rest is under ⋯.
+  Approve and Merge open a small box first; how it merges is one choice.
+- Beside the description, what decides the merge: review, checks, conflicts and draft, an answer
+  still being worked out shown as such, the checks, the reviewers' last verdicts and the labels.
+  People's pictures in the conversation.
+- The commits are drawn as the graph draws a branch, and the Files tab's file list is resized
+  from its edge.
+- The list and a pull request open at once from the last read, then refresh behind it.
+- Needs Deck 1.19.0.
+
 ## 1.9.0 (2026-11-12)
 
 - In a project with several folders (Deck 1.17.3), the graph offers the repositories of every folder.
