@@ -128,7 +128,7 @@ export const PR_VIEW_FIELDS = "number,title,body,url,state,isDraft,author,headRe
 
 export interface PrCheck { name: string; state: PrState; url: string }
 export interface PrEvent { kind: "comment" | "review"; author: string; body: string; at: string; /** a review's verdict */ verdict?: string }
-export interface PrCommit { oid: string; headline: string; author: string; at: string }
+export interface PrCommit { oid: string; headline: string; author: string; at: string; /** For the author's picture, as the graph finds it. */ email?: string }
 export interface PrDetail {
   number: number; title: string; body: string; url: string;
   /** OPEN, CLOSED or MERGED */ state: string; isDraft: boolean; author: string;
@@ -177,7 +177,7 @@ export function parsePrDetail(json: string): PrDetail | null {
     commits: arr(r.commits).map((c) => ({
       oid: String(c.oid ?? ""), headline: String(c.messageHeadline ?? ""),
       author: login(arr(c.authors)[0]) || String((arr(c.authors)[0] as { name?: string } | undefined)?.name ?? ""),
-      at: String(c.committedDate ?? ""),
+      at: String(c.committedDate ?? ""), email: String((arr(c.authors)[0] as { email?: string } | undefined)?.email ?? "") || undefined,
     })),
     // A request names a user (login) or a team (name).
     requested: arr(r.reviewRequests).map((q) => String(q.login ?? q.name ?? "")).filter(Boolean),
@@ -333,7 +333,7 @@ export function parseMrDetail(mrJson: string, approvalsJson: string, discussions
     timeline,
     // GitLab lists commits newest first; the view, as on GitHub, oldest first.
     commits: list(parse(commitsJson)).map((c) => ({
-      oid: String(c.id ?? ""), headline: String(c.title ?? ""), author: String(c.author_name ?? ""), at: String(c.committed_date ?? ""),
+      oid: String(c.id ?? ""), headline: String(c.title ?? ""), author: String(c.author_name ?? ""), at: String(c.committed_date ?? ""), email: String(c.author_email ?? "") || undefined,
     })).reverse(),
     requested: list(r.reviewers).map(user).filter(Boolean),
     labels: list(r.labels).map((l) => ({ name: String(l), color: "" })),

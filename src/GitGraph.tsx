@@ -67,7 +67,7 @@ const loadRefCol = () => {
   const n = Number(localStorage.getItem(REF_COL_KEY));
   return Number.isFinite(n) && n > 0 ? n : REF_COL_DEFAULT;
 };
-const COLORS = ["#FFB000", "#DC267F", "#994F00", "#40B0A6", "#B66DFF"];
+export const COLORS = ["#FFB000", "#DC267F", "#994F00", "#40B0A6", "#B66DFF"];
 const rot = (i: number, n: number) => ((i % n) + n) % n;
 
 

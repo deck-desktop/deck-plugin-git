@@ -22,6 +22,7 @@ import { TONE, ago, failWith } from "./pr/common";
 import { PrFiles } from "./pr/PrFiles";
 import { PrActions } from "./pr/PrActions";
 import { PrSide } from "./pr/PrSide";
+import { PrCommits } from "./pr/PrCommits";
 import { primaryAction } from "./pr/status";
 import { detailCache, verdictCache, prKey, type Verdicts } from "./pr/cache";
 
@@ -171,17 +172,7 @@ export function PrView({ root, remote, number, theme, onConfirm, onOpenCommit }:
           </div>
         )}
         {tab === "files" && <PrFiles root={root} host={host} remote={remote} d={d} theme={theme} onConfirm={onConfirm} />}
-        {tab === "commits" && (
-          <div className="scroll-thin h-full overflow-y-auto px-2.5 py-1.5">
-            {d.commits.map((c) => (
-              <button key={c.oid} onClick={() => onOpenCommit?.(c.oid)} className="flex h-6 w-full items-center gap-3 rounded-md px-1.5 text-left text-[12px] transition-colors hover:bg-white/5">
-                <span className="font-mono text-text-muted">{c.oid.slice(0, 7)}</span>
-                <span className="min-w-0 flex-1 truncate text-text-primary">{c.headline}</span>
-                <span className="shrink-0 text-text-muted">{c.author} · {ago(c.at)}</span>
-              </button>
-            ))}
-          </div>
-        )}
+        {tab === "commits" && <PrCommits root={root} commits={d.commits} onOpen={onOpenCommit} />}
       </div>
     </div>
   );
