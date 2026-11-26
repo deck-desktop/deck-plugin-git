@@ -12,9 +12,8 @@ import { usePrHost, prError, type PrHost } from "../prhost";
 import { ErrorText } from "../ErrorText";
 import { STATE_COLOR, TONE, ago } from "./common";
 import { groupRows, rowStatus } from "./status";
+import { listCache, type Lists } from "./cache";
 import { Person, pictureOf } from "./Person";
-
-interface Lists { all: PrRow[]; review: PrRow[] | null; mine: PrRow[] | null }
 
 export function PrList({ root, selected, onOpen, onClose }: {
   root: string; selected: number | null;
@@ -22,7 +21,9 @@ export function PrList({ root, selected, onOpen, onClose }: {
   onOpen: (n: number, title: string) => void; onClose: () => void;
 }) {
   const host = usePrHost(root);
-  const [lists, setLists] = useState<Lists | null>(null);
+  // Last session's copy at once; load() reads it afresh behind it.
+  const [lists, setLists] = useState<Lists | null>(() => listCache.get(root) ?? null);
+  const [fetching, setFetching] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [botsOpen, setBotsOpen] = useState(false);
@@ -30,13 +31,16 @@ export function PrList({ root, selected, onOpen, onClose }: {
   const [busy, setBusy] = useState("");
   const load = () => {
     if (!host) return;
-    setLists(null); setError("");
+    setError(""); setFetching(true);
     // Three questions to the host at once; only "all" failing is an error. The other two failing
     // leaves their rows in the groups after.
     void Promise.allSettled([host.list("all"), host.list("review"), host.list("mine")]).then(([all, review, mine]) => {
-      if (all.status === "rejected") { setLists({ all: [], review: null, mine: null }); setError(prError(all.reason)); return; }
+      setFetching(false);
+      if (all.status === "rejected") { if (!listCache.has(root)) setLists({ all: [], review: null, mine: null }); setError(prError(all.reason)); return; }
       for (const r of [review, mine]) if (r.status === "rejected") console.warn("[git] listing pull requests failed", r.reason);
-      setLists({ all: all.value, review: review.status === "fulfilled" ? review.value : null, mine: mine.status === "fulfilled" ? mine.value : null });
+      const next = { all: all.value, review: review.status === "fulfilled" ? review.value : null, mine: mine.status === "fulfilled" ? mine.value : null };
+      listCache.set(root, next);
+      setLists(next);
     });
   };
   useEffect(load, [host]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -80,7 +84,7 @@ export function PrList({ root, selected, onOpen, onClose }: {
       <div className="flex shrink-0 items-center gap-1.5 pb-1 pl-3 pr-2 pt-2">
         <span className="min-w-0 truncate text-[12.5px] font-medium text-text-primary">{host?.kind === "gitlab" ? "Merge requests" : "Pull requests"}</span>
         {lists && !error && <span className={countChip}>{total}</span>}
-        {busy && <Loader2 size={13} className="ml-1 animate-spin text-text-muted" aria-label={busy} />}
+        {(busy || (fetching && lists)) && <Loader2 size={13} className="ml-1 animate-spin text-text-muted" aria-label={busy || "Refreshing"} />}
         <button onClick={load} title="Refresh" className={toolBtn + " ml-auto"}><RefreshCw size={14} /></button>
         <button onClick={onClose} title="Close" className={toolBtn}><X size={14} /></button>
       </div>

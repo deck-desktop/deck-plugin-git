@@ -23,6 +23,7 @@ import { PrFiles } from "./pr/PrFiles";
 import { PrActions } from "./pr/PrActions";
 import { PrSide } from "./pr/PrSide";
 import { primaryAction } from "./pr/status";
+import { detailCache, verdictCache, prKey, type Verdicts } from "./pr/cache";
 
 export { PrList } from "./pr/PrList";
 
@@ -37,32 +38,35 @@ export function PrView({ root, remote, number, theme, onConfirm, onOpenCommit }:
 }) {
   const fail = failWith(onConfirm, root);
   const host = usePrHost(root);
-  const [d, setD] = useState<PrDetail | null>(null);
+  const [d, setD] = useState<PrDetail | null>(() => detailCache.get(prKey(root, number)) ?? null);
   const [tab, setTab] = useState<Tab>("overview");
   const [busy, setBusy] = useState("");
+  const [loading, setLoading] = useState(false);
   const [comment, setComment] = useState("");
 
   const load = () => {
     if (!host) return;
+    setLoading(true);
     void host.view(number)
-      .then((v) => { if (!v) throw new Error(`No ${host.noun} ${host.sign}${number} here.`); setD(v); })
-      .catch((e) => fail(`Could not load ${host.sign}${number}`, e));
+      .then((v) => { if (!v) throw new Error(`No ${host.noun} ${host.sign}${number} here.`); detailCache.set(prKey(root, number), v); setD(v); })
+      .catch((e) => fail(`Could not load ${host.sign}${number}`, e))
+      .finally(() => setLoading(false));
   };
-  useEffect(() => { setD(null); setTab("overview"); load(); }, [host, number]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setD(detailCache.get(prKey(root, number)) ?? null); setTab("overview"); load(); }, [host, number]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // What a review can say here: GitHub's three, or GitLab's approve-or-revoke and comment; one the
   // host will refuse (your own pull request, say) comes with why. Null until asked: the header
   // offers no action until then, rather than one that changes under the pointer.
-  const [verdicts, setVerdicts] = useState<{ v: Verdict; label: string; why?: string }[] | null>(null);
+  const [verdicts, setVerdicts] = useState<Verdicts | null>(() => verdictCache.get(prKey(root, number)) ?? null);
   useEffect(() => {
     if (!host || !d) return;
     let alive = true;
-    void host.verdicts(d).then((vs) => { if (alive) setVerdicts(vs); }, (e) => { console.warn("[git] asking what a review can say failed", e); if (alive) setVerdicts([]); });
+    void host.verdicts(d).then((vs) => { verdictCache.set(prKey(root, d.number), vs); if (alive) setVerdicts(vs); }, (e) => { console.warn("[git] asking what a review can say failed", e); if (alive) setVerdicts([]); });
     return () => { alive = false; };
     // Not on `d` itself: every action re-reads it as a new object, and GitHub's answer costs a
     // `gh pr list` (whether it is yours). Approving is the one thing that changes it.
   }, [host, d?.number, d?.approvedByMe]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setVerdicts(null); }, [number]);
+  useEffect(() => { setVerdicts(verdictCache.get(prKey(root, number)) ?? null); }, [root, number]);
 
   /** A host action; then re-read it, and tell the graph when the repo itself moved. */
   const run = async (label: string, act: () => Promise<unknown>, repoMoved = false): Promise<boolean> => {
@@ -102,7 +106,7 @@ export function PrView({ root, remote, number, theme, onConfirm, onOpenCommit }:
                 <span className="min-w-0 truncate">{d.head}</span><ArrowRight size={11} className="shrink-0 text-text-muted" /><span className="shrink-0">{d.base}</span>
               </span>
               {d.additions != null && <span className="tabular-nums"><span style={{ color: "var(--git-added)" }}>+{d.additions}</span> <span style={{ color: "var(--git-deleted)" }}>−{d.deletions}</span></span>}
-              <button onClick={load} title="Refresh" className={toolBtn}><RefreshCw size={13} /></button>
+              <button onClick={load} title={loading ? "Refreshing…" : "Refresh"} className={toolBtn}><RefreshCw size={13} className={loading ? "animate-spin" : undefined} /></button>
             </div>
           </div>
           <PrActions key={d.number} d={d} host={host} primary={primaryAction(d, canApprove)} verdicts={verdicts ?? []} busy={busy} run={run} />
