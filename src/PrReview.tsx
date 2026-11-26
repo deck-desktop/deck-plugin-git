@@ -123,7 +123,7 @@ export function PrView({ root, remote, number, theme, onConfirm, onOpenCommit }:
         {tab === "overview" && (
           <div className="scroll-thin h-full overflow-y-auto px-6 py-5">
             {/* Reversed, so where the two do not fit side by side, what decides the merge comes first. */}
-            <div className="flex flex-row-reverse flex-wrap items-start justify-end gap-6">
+            <div className="flex flex-wrap items-start justify-end gap-6" style={{ flexDirection: "row-reverse" }}>
               <PrSide d={d} host={host} />
               {/* The description at a width that reads, and the conversation under it. */}
               <article className="min-w-0" style={{ flex: "999 1 360px", maxWidth: 760 }}>

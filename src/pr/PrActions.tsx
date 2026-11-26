@@ -105,7 +105,7 @@ export function PrActions({ d, host, primary, verdicts, busy, run }: {
           {failing.map((c, i) => <Reason key={i} tone="wait" text={`Check failed: ${c.name}. It can still be merged.`} link={c.url ? { label: "See its log", onClick: () => void openExternal(c.url) } : undefined} />)}
           <div className="flex items-center gap-2">
             <label htmlFor={`pr-method-${n}`} className="text-text-muted">As</label>
-            <select id={`pr-method-${n}`} value={method} onChange={(e) => setMethod(e.target.value as MergeMethod)} className={field + " h-7 w-auto px-2"}>
+            <select id={`pr-method-${n}`} value={method} onChange={(e) => setMethod(e.target.value as MergeMethod)} className={field + " h-7 px-2"} style={{ width: "auto" }}>
               <option value="merge">a merge commit</option>
               <option value="squash">one squashed commit</option>
               <option value="rebase">rebased commits</option>
